@@ -6,6 +6,7 @@ import com.xiangqi.app.domain.model.Piece
 import com.xiangqi.app.domain.model.PieceType
 import com.xiangqi.app.domain.model.Position
 import com.xiangqi.app.domain.model.Side
+import kotlin.math.abs
 
 /**
  * 默认走法生成器实现。按棋子类型分派到对应的内部生成器。
@@ -205,10 +206,11 @@ class MoveGeneratorImpl : MoveGenerator {
         return board[target]?.side != side
     }
 
-    /** 仕/士攻击 target:相邻斜走。 */
+    /** 仕/士攻击 target:相邻斜走,target 必须在本方九宫内。 */
     private fun advisorAttacks(board: Board, from: Position, target: Position, side: Side): Boolean {
         val (dc, dr) = target - from
         if (abs(dc) != 1 || abs(dr) != 1) return false
+        if (!BoardRegions.isInPalace(target, side)) return false
         return board[target]?.side != side
     }
 
@@ -236,7 +238,7 @@ class MoveGeneratorImpl : MoveGenerator {
         return board[target]?.side != side
     }
 
-    /** 车攻击 target:同行/同列直射,中间无子。 */
+    /** 车攻击 target:同行/同列直射,中间无子,target 必须是空或对方棋子。 */
     private fun rookAttacks(board: Board, from: Position, target: Position, side: Side): Boolean {
         val (dc, dr) = target - from
         if (dc != 0 && dr != 0) return false
@@ -250,13 +252,23 @@ class MoveGeneratorImpl : MoveGenerator {
         var pos = from
         while (true) {
             val next = pos.offsetBy(stepC, stepR) ?: return false
-            if (next == target) return true
+            if (next == target) {
+                // 到 target:可以是空格(攻击空格,表示"车能走到这里")或对方棋子(可吃)。
+                // 己方棋子不攻击(与 rookMoves 行为一致)。
+                val occ = board[target]
+                return occ == null || occ.side != side
+            }
             if (board[next] != null) return false
             pos = next
         }
     }
 
-    /** 炮攻击 target:同行/同列,中间恰好一子(翻山),target 处有对方棋子。 */
+    /**
+     * 炮攻击 target:
+     * - 未翻山段(中间无子):target 是空格 → true;
+     * - 翻山段(中间恰好一子):target 是对方棋子 → true;
+     * - 其它(包括对方"飞将"隔山攻击对方将位、未翻山段遇对方棋子等)→ false。
+     */
     private fun cannonAttacks(board: Board, from: Position, target: Position, side: Side): Boolean {
         val (dc, dr) = target - from
         if (dc != 0 && dr != 0) return false
@@ -272,9 +284,17 @@ class MoveGeneratorImpl : MoveGenerator {
         while (true) {
             val next = pos.offsetBy(stepC, stepR) ?: return false
             if (next == target) {
-                return jumped && board[target]?.side != side
+                val occ = board[target]
+                return if (!jumped) {
+                    // 未翻山段:target 必须是空格
+                    occ == null
+                } else {
+                    // 翻山段:target 必须是对方棋子
+                    occ != null && occ.side != side
+                }
             }
-            if (board[next] != null) {
+            val occ = board[next]
+            if (occ != null) {
                 if (jumped) return false
                 jumped = true
             }
@@ -292,6 +312,4 @@ class MoveGeneratorImpl : MoveGenerator {
         }
         return false
     }
-
-    private fun abs(x: Int): Int = if (x < 0) -x else x
 }
