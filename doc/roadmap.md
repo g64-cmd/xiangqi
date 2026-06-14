@@ -4,14 +4,13 @@
 
 ## 当前阶段
 
-🎯 **M0 — 工程化基线**(已完成,等 PR 合并;**Hilt 推迟**到独立 PR)
+🎯 **M0 — 工程化基线**(已完成,Hilt 2.59.2 + KSP 已接入)
 
 ## 里程碑清单
 
 | ID | 名称 | 状态 | 关键交付 | 备注 |
 |---|---|---|---|---|
-| M0 | 工程化基线 | ✅ 完成 | CI、文档骨架、包名重命名、Android 风配色 | feature/M0-baseline;Hilt+KSP 因 AGP 9 兼容性暂缓,见 dev-log |
-| M0+ | Hilt + KSP 接入 | ⚠️ 阻塞 | 等 Dagger 发布兼容 AGP 9 的稳定版 | 待 Hilt 团队跟进 |
+| M0 | 工程化基线 | ✅ 完成 | CI、文档骨架、包名重命名、Android 风配色、Hilt+KSP | feature/M0-baseline + feature/M0-hilt-retry |
 | M1 | 领域模型与规则引擎 | ⏳ 待启动 | 棋盘、棋子、走法生成、FEN、将军/将死判定 | feature/M1-* |
 | M2 | 自研搜索引擎 | ⏳ 待启动 | Minimax + AB + 估值 + 难度档位 | feature/M2-* |
 | M3 | 棋盘 UI | ⏳ 待启动 | Canvas 棋盘、棋子、点击交互、动画 | feature/M3-* |
