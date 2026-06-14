@@ -72,3 +72,12 @@ Thumbs.db
 
 # Kotlin cache
 *.kotlin_module
+
+# Pikafish engine binaries (built locally with NDK, not committed)
+*.nnue
+/pikafish-build/
+/pikafish-bin/
+/app/src/main/assets/pikafish/
+
+# Claude Code workspace
+/.claude/
