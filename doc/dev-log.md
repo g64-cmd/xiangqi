@@ -90,4 +90,29 @@
 
 ---
 
+## 2026-06-15 — M1 领域模型与规则引擎完成(分支 feature/M1)
+
+**改动**
+- `domain/model/`:Piece / Side / Position(value class) / Move / Board / GameResult。
+  棋盘 9×10,row-major packed Int,坐标约定 row 0..9 直接对应 UCI 行字符
+  (与 xqbase / Pikafish 主流规范一致:红方 row=0–4,黑方 row=5–9)。
+- `domain/fen/`:FenParser + FenPosition,严格 round-trip。
+- `domain/movegen/`:MoveGeneratorImpl 实现 7 种棋子伪合法走法,
+  含蹩马腿 / 塞象眼 / 翻山 / 过河横移。
+- `domain/rules/`:CheckDetector(将军+飞将)、MoveLegality(走完后己方不被将)、
+  CheckmateDetector(将死 / 困毙判负 / decide 返回 GameResult)。
+
+**验证**
+- `./gradlew :app:testDebugUnitTest` ✅ 76 个测试全绿
+- **Perft depth 1/2/3 = 44 / 1920 / 79666**,与开源中国象棋参考值完全对账一致
+  (已记入 `doc/testing.md` 的 Perft 表)
+
+**备注**
+- 设计上把"伪合法走法"和"合法性过滤"分离,Perft 内部用 MoveLegality 过滤
+- 自定义杀局 FEN 容易因人工算错格数出错,最终保留了一个简单可靠的双车夹角杀局
+  + 生成式 sanity 检查(开局任一红走法走完后黑方仍 ONGOING)
+- M1 不依赖任何 Android API,完全 JVM 可测;为 M2 自研搜索引擎打下基础
+
+---
+
 <!-- 后续记录在此行上方,保持倒序 -->
