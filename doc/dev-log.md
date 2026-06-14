@@ -52,7 +52,6 @@
 - 重写 `README.md`:项目状态、技术栈、构建命令、目录结构、文档导航
 
 **关键调整(偏离原计划)**
-- **Hilt + KSP 暂缓接入**:Hilt 2.57 的 Gradle 插件依赖已被 AGP 9 移除的 `BaseExtension`(报错 `Android BaseExtension not found`)。等 Dagger 发布兼容 AGP 9 的稳定版后,单开一个 PR 接入。已写注释占位。
 - **androidx.core-ktx 降级**:1.19.0 要求 compileSdk 37,本机 SDK 暂只到 36.1;降级到 1.16.0 以维持 compileSdk=36。后续升 SDK 时一并升级。
 
 **验证**
@@ -63,8 +62,31 @@
 
 **备注**
 - 真机启动验证待用户在合并 PR 后做(`./gradlew :app:installDebug`)
-- Hilt 接入涉及后续每个 ViewModel / Repository 的 DI 改造,等独立 PR 时统一推进
 - M1 启动前需先在 GitHub 上确认 CI 真跑通过
+
+---
+
+## 2026-06-15 — Hilt + KSP 接入(分支 feature/M0-hilt-retry)
+
+**背景**
+最初尝试用 Hilt 2.57 + KSP 接入,但 Hilt 2.57 的 Gradle 插件初始化时执行 `project.extensions.getByType(BaseExtension::class.java)`,而 `BaseExtension` 已被 AGP 9 移除,导致 `Android BaseExtension not found`。当时选择把 Hilt 暂缓到独立 PR。后确认 **Hilt 2.59.2(2026-02 发布)** 已迁移到 AGP 新 Variant API,可兼容 AGP 9。
+
+**改动**
+- `libs.versions.toml`:`hilt = "2.59.2"`
+- 根 `build.gradle.kts`:启用 `hilt`、`ksp` 插件 `apply false`
+- `app/build.gradle.kts`:启用 `hilt`、`ksp` 插件,加 `implementation(hilt-android)` + `ksp(hilt-compiler)` + `implementation(hilt-navigation-compose)`,androidTest 加 `hilt-android-testing`
+- `XiangqiApplication`:加 `@HiltAndroidApp`
+- `MainActivity`:加 `@AndroidEntryPoint`
+- `gradle.properties`:加 `android.disallowKotlinSourceSets=false`,绕开 AGP 9 内置 Kotlin + KSP 的 `kotlin.sourceSets` 冲突。详见 https://developer.android.com/r/tools/built-in-kotlin
+
+**验证**
+- `./gradlew :app:testDebugUnitTest` ✅(`kspDebugKotlin`、`hiltSyncDebug`、`hiltAggregateDepsDebug`、`hiltJavaCompileDebug`、`transformDebugClassesWithAsm` 等任务全部通过)
+- `./gradlew :app:lintDebug` ✅
+- `./gradlew :app:assembleDebug` ✅
+
+**备注**
+- `android.disallowKotlinSourceSets=false` 是临时 workaround,等 KSP 完全适配 AGP 9 内置 Kotlin 后可移除
+- 后续每个 ViewModel 用 `@HiltViewModel` 注解,Repository 用 `@Inject constructor` 注解,EngineModule 提供 SelfEngine / PikafishEngine 绑定
 
 ---
 

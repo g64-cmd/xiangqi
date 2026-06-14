@@ -1,8 +1,8 @@
 package com.xiangqi.app
 
 import android.app.Application
+import dagger.hilt.android.HiltAndroidApp
 
-// Hilt 注解推迟到独立 PR
-// @HiltAndroidApp
+@HiltAndroidApp
 class XiangqiApplication : Application()
 
