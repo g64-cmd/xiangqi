@@ -43,18 +43,14 @@ class MoveGeneratorImplTest {
 
     @Test
     fun `bishop cannot cross river and respects eye`() {
-        // 红相 (2,0),田字心为 (3,1)
+        // 红相 (1,0),田字心为 (2,1),目标 (3,2)
         val board = FenParser.parse("9/9/9/9/9/9/9/9/9/1B7 w - - 0 1").board
         val targets = targetsOf(gen.movesFrom(board, Position(1, 0)))
-        // 田字目标:(3,2)(-1,2 — 越界) → 只能 (3,2),其它要么越界要么反向也越界
+        // 田字目标:(3,2)(-1,2 — 越界) → 只能 (3,2)
         assertThat(targets).containsExactly(Position(3, 2))
 
-        // 塞象眼:在 (3,1) 放棋子,相不能动
+        // 塞象眼:在 (2,1) 放棋子,(1,0)→(3,2) 的象眼是 (2,1),目标 (3,2) 应该不可走
         val blocked = board.with(Position(2, 1), Piece(PieceType.PAWN, Side.BLACK))
-        // (1,0)→(3,2) 的象眼是 (2,1) 还是 (2,1)?纠正:dc=2,dr=2,eye = (2,1)
-        // 现在我们让 (2,1) 被塞,目标 (3,2) 应该不可走
-        // 注:上面我用 (2,1) 而非 (3,1) — 重写
-        // 实际上 (1,0) → (3,2) 的差是 (2,2),象眼 = (1+1, 0+1) = (2,1)。OK
         assertThat(targetsOf(gen.movesFrom(blocked, Position(1, 0)))).doesNotContain(Position(3, 2))
     }
 

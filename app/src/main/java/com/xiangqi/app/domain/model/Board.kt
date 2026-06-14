@@ -33,15 +33,6 @@ class Board private constructor(
         return with(move.from, null).with(move.to, piece)
     }
 
-    /** 是否存在 [side] 方的任一棋子(用于"飞将"和"将帅照面"判定)。 */
-    fun any(predicate: (Position, Piece) -> Boolean): Boolean {
-        for (i in cells.indices) {
-            val p = cells[i] ?: continue
-            if (predicate(Position(i), p)) return true
-        }
-        return false
-    }
-
     /** 找到 [type]+[side] 棋子的所有位置。 */
     fun find(type: PieceType, side: Side): List<Position> {
         val out = ArrayList<Position>(4)
@@ -99,12 +90,6 @@ class Board private constructor(
                     cells[i++] = block(col, row)
                 }
             }
-            return Board(cells)
-        }
-
-        /** 直接从数组构造,长度必须为 90,内部不再拷贝。仅供内部使用。 */
-        internal fun unsafeFrom(cells: Array<Piece?>): Board {
-            require(cells.size == Position.CELL_COUNT) { "cells 长度应为 ${Position.CELL_COUNT}" }
             return Board(cells)
         }
     }

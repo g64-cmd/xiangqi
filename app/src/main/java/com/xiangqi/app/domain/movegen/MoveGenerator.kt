@@ -21,4 +21,13 @@ interface MoveGenerator {
 
     /** 生成棋盘上 [side] 方所有棋子的伪合法走法,顺序无约定。 */
     fun movesFor(board: Board, side: Side): List<Move>
+
+    /**
+     * [from] 处棋子按几何规则是否攻击 [target](即 from→target 是一条伪合法走法)。
+     *
+     * 与 [movesFrom] 等价于 `movesFrom(board, from).any { it.to == target }`,
+     * 但**不分配 List**,性能更优。供 [com.xiangqi.app.domain.rules.CheckDetector]
+     * 反查"将位是否被攻击"时使用——把 N² 遍历降为 N。
+     */
+    fun attacks(board: Board, from: Position, target: Position): Boolean
 }

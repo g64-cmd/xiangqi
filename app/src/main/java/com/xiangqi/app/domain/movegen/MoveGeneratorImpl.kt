@@ -35,6 +35,19 @@ class MoveGeneratorImpl : MoveGenerator {
         return out
     }
 
+    override fun attacks(board: Board, from: Position, target: Position): Boolean {
+        val piece = board[from] ?: return false
+        return when (piece.type) {
+            PieceType.KING -> kingAttacks(board, from, target, piece.side)
+            PieceType.ADVISOR -> advisorAttacks(board, from, target, piece.side)
+            PieceType.BISHOP -> bishopAttacks(board, from, target, piece.side)
+            PieceType.KNIGHT -> knightAttacks(board, from, target, piece.side)
+            PieceType.ROOK -> rookAttacks(board, from, target, piece.side)
+            PieceType.CANNON -> cannonAttacks(board, from, target, piece.side)
+            PieceType.PAWN -> pawnAttacks(board, from, target, piece.side)
+        }
+    }
+
     private fun generate(board: Board, from: Position, piece: Piece): List<Move> = when (piece.type) {
         PieceType.KING -> kingMoves(board, from, piece.side)
         PieceType.ADVISOR -> advisorMoves(board, from, piece.side)
@@ -182,4 +195,103 @@ class MoveGeneratorImpl : MoveGenerator {
             from.offsetBy(-1, 1),
             from.offsetBy(-1, -1),
         )
+
+    // ---- 单点攻击判定(供 isInCheck 反查,避免分配 List)----
+
+    /** 帅/将攻击 target:相邻直走(九宫外不判定,因为"将军"必然在九宫内)。 */
+    private fun kingAttacks(board: Board, from: Position, target: Position, side: Side): Boolean {
+        val (dc, dr) = target - from
+        if (abs(dc) + abs(dr) != 1) return false
+        return board[target]?.side != side
+    }
+
+    /** 仕/士攻击 target:相邻斜走。 */
+    private fun advisorAttacks(board: Board, from: Position, target: Position, side: Side): Boolean {
+        val (dc, dr) = target - from
+        if (abs(dc) != 1 || abs(dr) != 1) return false
+        return board[target]?.side != side
+    }
+
+    /** 相/象攻击 target:田字且不塞眼。 */
+    private fun bishopAttacks(board: Board, from: Position, target: Position, side: Side): Boolean {
+        val (dc, dr) = target - from
+        if (abs(dc) != 2 || abs(dr) != 2) return false
+        if (!BoardRegions.isOnOwnSide(target, side)) return false
+        val eye = from.offsetBy(dc / 2, dr / 2) ?: return false
+        if (board[eye] != null) return false
+        return board[target]?.side != side
+    }
+
+    /** 马攻击 target:日字且不蹩腿。 */
+    private fun knightAttacks(board: Board, from: Position, target: Position, side: Side): Boolean {
+        val (dc, dr) = target - from
+        // 8 个有效步幅:(±1, ±2) 或 (±2, ±1);对应蹩腿格偏移
+        val (lc, lr) = when {
+            abs(dc) == 1 && abs(dr) == 2 -> 0 to dr / 2
+            abs(dc) == 2 && abs(dr) == 1 -> dc / 2 to 0
+            else -> return false
+        }
+        val legPos = from.offsetBy(lc, lr) ?: return false
+        if (board[legPos] != null) return false
+        return board[target]?.side != side
+    }
+
+    /** 车攻击 target:同行/同列直射,中间无子。 */
+    private fun rookAttacks(board: Board, from: Position, target: Position, side: Side): Boolean {
+        val (dc, dr) = target - from
+        if (dc != 0 && dr != 0) return false
+        val (stepC, stepR) = when {
+            dc > 0 -> 1 to 0
+            dc < 0 -> -1 to 0
+            dr > 0 -> 0 to 1
+            dr < 0 -> 0 to -1
+            else -> return false
+        }
+        var pos = from
+        while (true) {
+            val next = pos.offsetBy(stepC, stepR) ?: return false
+            if (next == target) return true
+            if (board[next] != null) return false
+            pos = next
+        }
+    }
+
+    /** 炮攻击 target:同行/同列,中间恰好一子(翻山),target 处有对方棋子。 */
+    private fun cannonAttacks(board: Board, from: Position, target: Position, side: Side): Boolean {
+        val (dc, dr) = target - from
+        if (dc != 0 && dr != 0) return false
+        val (stepC, stepR) = when {
+            dc > 0 -> 1 to 0
+            dc < 0 -> -1 to 0
+            dr > 0 -> 0 to 1
+            dr < 0 -> 0 to -1
+            else -> return false
+        }
+        var pos = from
+        var jumped = false
+        while (true) {
+            val next = pos.offsetBy(stepC, stepR) ?: return false
+            if (next == target) {
+                return jumped && board[target]?.side != side
+            }
+            if (board[next] != null) {
+                if (jumped) return false
+                jumped = true
+            }
+            pos = next
+        }
+    }
+
+    /** 兵/卒攻击 target:未过河只前;过河后可左/右/前。 */
+    private fun pawnAttacks(board: Board, from: Position, target: Position, side: Side): Boolean {
+        val (dc, dr) = target - from
+        val forward = if (side == Side.RED) 1 else -1
+        if (dc == 0 && dr == forward) return board[target]?.side != side
+        if (BoardRegions.isAcrossRiver(from, side) && dr == 0 && abs(dc) == 1) {
+            return board[target]?.side != side
+        }
+        return false
+    }
+
+    private fun abs(x: Int): Int = if (x < 0) -x else x
 }

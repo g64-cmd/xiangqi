@@ -16,7 +16,7 @@ class MoveLegalityTest {
     private val legality = MoveLegality(gen)
 
     @Test
-    fun `move that leaves own king attacked is illegal`() {
+    fun `move that does not resolve check is illegal`() {
         // 黑将 (3,9) 被红车 (3,8) 将军。黑卒 (0,6) 想走 (0,5),没解将 → 非法。
         // FEN:段 0 (row=9)= (3,9) 黑将;段 1 (row=8) = (3,8) 红车;段 3 (row=6) = (0,6) 黑卒
         val board = FenParser.parse("3k5/3R5/9/p8/9/9/9/9/9/9 b - - 0 1").board

@@ -13,6 +13,13 @@ import com.xiangqi.app.domain.movegen.MoveGenerator
  *
  * 这是 M1-d "走法合法性"判定的基础——一个走法合法,当且仅当走完后己方不被
  * isInCheck。
+ *
+ * 实现用 [MoveGenerator.attacks] 反查将位——遍历对方所有棋子位置,
+ * 对每个调用 [MoveGenerator.attacks] 判断是否攻击 [kingPos]。比"遍历对方所有
+ * 走法查 move.to == kingPos"省去 List 分配,适合 M2 引擎搜索时高频调用。
+ *
+ * TODO(M2): 当前仍 O(N),N 为对方棋子数。深度搜索瓶颈在 isInCheck 调用次数,
+ * 进一步优化可改为"对将位 8 个方向反向扫描",把 N 降为常数。M2 启动时重测决定。
  */
 class CheckDetector(private val gen: MoveGenerator) {
 
@@ -21,8 +28,10 @@ class CheckDetector(private val gen: MoveGenerator) {
         if (areKingsFacing(board)) return true
         val kingPos = board.kingPosition(side) ?: return false
         val attacker = side.opponent
-        for (move in gen.movesFor(board, attacker)) {
-            if (move.to == kingPos) return true
+        for ((pos, piece) in board) {
+            if (piece != null && piece.side == attacker && gen.attacks(board, pos, kingPos)) {
+                return true
+            }
         }
         return false
     }
