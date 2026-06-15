@@ -13,7 +13,9 @@ import com.xiangqi.app.domain.model.Position
 import com.xiangqi.app.domain.model.Side
 import com.xiangqi.app.domain.movegen.MoveGenerator
 import com.xiangqi.app.domain.rules.MoveLegality
+import com.xiangqi.app.engine.Difficulty
 import com.xiangqi.app.engine.EngineProvider
+import com.xiangqi.app.engine.EngineResult
 import com.xiangqi.app.engine.SearchInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -31,7 +33,7 @@ import javax.inject.Inject
  * GameScreen 的状态机。
  *
  * 数据流:`repo.state` (单一真相源) + 本地 `_selected` / `_legalTargets` /
- * `_isAiThinking` / `_searchInfo` + `configHolder.config` → combine 成 [uiState]。
+ * `_isEngineBusy` / `_searchInfo` + `configHolder.config` → combine 成 [uiState]。
  *
  * **选择状态机** (onTap):
  * 1. 游戏已结束 / AI 思考中 / AI 回合 → 忽略。
@@ -43,6 +45,11 @@ import javax.inject.Inject
  *
  * **AI 自动应招**:[init] 启动 `repo.state` collector,人机模式下检测到对手回合
  * 即 `launchAiMove`。AI 走子通过 `repo.applyMove` 复用既有的合法性校验。
+ *
+ * **引擎序列化不变量(M6 起)**:同一时刻只有 0 或 1 个 `engine.search` 在执行。
+ * `launchEngine` 是所有 engine 入口(AI 自动应招 / Hint / 求和评估 / 手动 Analysis)
+ * 的统一通道:设置 `_isEngineBusy=true` → 跑 `engine.search` on `Dispatchers.Default`
+ * → `finally` 清旗标。`aiJob?.cancel()` 保证后到的覆盖前到的。
  *
  * **悔棋语义**:HOT_SEAT 退 1 ply;HUMAN_VS_AI 退 2 ply(玩家总是面对"自己刚
  * 走完,AI 还没应"的局面)。
@@ -58,7 +65,7 @@ class GameViewModel @Inject constructor(
 
     private val _selected = MutableStateFlow<Position?>(null)
     private val _legalTargets = MutableStateFlow<Set<Position>>(emptySet())
-    private val _isAiThinking = MutableStateFlow(false)
+    private val _isEngineBusy = MutableStateFlow(false)
     private val _searchInfo = MutableStateFlow<SearchInfo?>(null)
     private val _resigned = MutableStateFlow<GameResult?>(null)
     private var aiJob: Job? = null
@@ -69,7 +76,7 @@ class GameViewModel @Inject constructor(
             _selected,
             _legalTargets,
             configHolder.config,
-            _isAiThinking,
+            _isEngineBusy,
         ) { gs, sel, targets, cfg, thinking ->
             mapUiState(gs, sel, targets, cfg, thinking)
         }.combine(_searchInfo) { state, info ->
@@ -121,13 +128,31 @@ class GameViewModel @Inject constructor(
         if (cfg.mode != GameMode.HUMAN_VS_AI) return
         if (s.result !is GameResult.ONGOING) return
         if (s.sideToMove != cfg.humanSide.opponent) return
-        if (_isAiThinking.value) return
+        if (_isEngineBusy.value) return
         launchAiMove(s)
     }
 
     private fun launchAiMove(s: GameState) {
+        val cfg = configHolder.config.value
+        launchEngine(s, cfg.difficulty, EngineKind.AI_MOVE) { result ->
+            repo.applyMove(result.bestMove)
+        }
+    }
+
+    /**
+     * 所有 engine.search 入口的统一通道(M6 抽出)。设置 `_isEngineBusy=true`,
+     * 在 Dispatchers.Default 跑 `engine.search`,完成后调用 [onResult](典型:
+     * AI move → applyMove;Hint → 写入 _suggestedMove;求和评估 → 阈值判定)。
+     * `aiJob?.cancel()` 保证序列化,后到的覆盖前到的。
+     */
+    private fun launchEngine(
+        s: GameState,
+        difficulty: Difficulty,
+        @Suppress("UNUSED_PARAMETER") kind: EngineKind,
+        onResult: (EngineResult) -> Unit,
+    ) {
         aiJob?.cancel()
-        _isAiThinking.value = true
+        _isEngineBusy.value = true
         val cfg = configHolder.config.value
         val engine = engineProvider.provide(cfg.engineType)
         aiJob = viewModelScope.launch(Dispatchers.Default) {
@@ -136,15 +161,15 @@ class GameViewModel @Inject constructor(
                 val result = engine.search(
                     board = s.board,
                     sideToMove = s.sideToMove,
-                    difficulty = cfg.difficulty,
+                    difficulty = difficulty,
                 )
-                repo.applyMove(result.bestMove)
+                onResult(result)
             } catch (_: CancellationException) {
                 // 取消时静默退出
             } finally {
                 infoCollector.cancel()
                 _searchInfo.value = null
-                _isAiThinking.value = false
+                _isEngineBusy.value = false
             }
         }
     }
@@ -152,7 +177,7 @@ class GameViewModel @Inject constructor(
     fun onTap(position: Position) {
         val s = repo.state.value
         if (s.result !is GameResult.ONGOING) return
-        if (_isAiThinking.value) return
+        if (_isEngineBusy.value) return
         val cfg = configHolder.config.value
         if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) return
 
@@ -176,7 +201,7 @@ class GameViewModel @Inject constructor(
     }
 
     fun onUndo() {
-        if (_isAiThinking.value) return
+        if (_isEngineBusy.value) return
         clearSelection()
         val cfg = configHolder.config.value
         val historySize = repo.state.value.history.size
@@ -199,7 +224,7 @@ class GameViewModel @Inject constructor(
      * 优先级最高。重启时清空。
      */
     fun onResign() {
-        if (_isAiThinking.value) return
+        if (_isEngineBusy.value) return
         val s = repo.state.value
         if (s.result !is GameResult.ONGOING) return
         _resigned.value = when (s.sideToMove) {
@@ -225,4 +250,10 @@ class GameViewModel @Inject constructor(
         val f = FenParser.parse(FenParser.INITIAL_FEN)
         return GameUiState(board = f.board, sideToMove = f.sideToMove)
     }
+
+    /**
+     * 标识当前 `launchEngine` 调用的语义入口。仅用于日志/调试,M6 起所有 engine
+     * 入口共用一个序列化通道。
+     */
+    private enum class EngineKind { AI_MOVE, HINT, DRAW_EVAL, MANUAL_ANALYZE }
 }
