@@ -227,6 +227,72 @@
 - BoardCanvasTest 标 `@Ignore`,真机/模拟器跑 `connectedDebugAndroidTest`
 - 后续 M6 优化:`Paint` 实例每帧 alloc,可 hoist 到顶层 `remember`
 
+## 2026-06-16 — M4 游戏流程完成(分支 feature/M4-game-flow)
+
+**改动**
+- `ui/game/GameMode.kt`:HOT_SEAT / HUMAN_VS_AI 两档枚举。
+- `data/game/GameConfig.kt` + `GameConfigHolder.kt`:跨屏配置载体(Singleton
+  StateFlow),避免对自定义类型做 NavHost 序列化。代价:同 App 同时只能 1 局,
+  M6 多局管理时再优化。
+- `ui/setup/`:SetupUiState + SetupViewModel + SetupScreen。模式 / 执棋方 /
+  难度(SegmentedButton + RadioButton)。开始对局时写入 Holder,orientation 按
+  模式派生(HOT_SEAT=RED、HUMAN_VS_AI=humanSide)。
+- `di/GameModule.kt`:补 4 个 @Provides —— Evaluation / MoveOrdering /
+  TranspositionTable / SelfEngine。返回 `Engine` 接口,M5 接 Pikafish 时按
+  @Qualifier 切换。
+- `ui/game/GameUiState.kt`:扩展 mode / humanSide / isAiThinking / searchInfo /
+  canInteract 五个字段。
+- `ui/game/GameViewModel.kt`:构造追加 `engine: Engine` + `configHolder`。
+  `init { repo.state.collect { maybeLaunchAi } }` 监听对手回合;人机模式下
+  `launchAiMove(Dispatchers.Default)` + engine.info collector + finally 清状态。
+  onUndo 人机模式悔两步(玩家总是面对"自己刚走完,AI 还没应")。
+  onResign 用本地 `_resigned` 叠加 uiState.result,优先于 repo.result。
+  canInteract 派生:思考中 / 游戏结束 / AI 回合都禁用。
+- `ui/components/GameTopBar.kt`:加返回按钮("← 返回" 文字,M4 不引入
+  material-icons 依赖)、AI 思考副标题(深度 / 分数 / 时间)。
+- `ui/components/GameBottomBar.kt`:加"认输"按钮;悔棋在 isAiThinking 时禁用。
+- `ui/nav/XiangqiNavHost.kt`:Navigation Compose,setup → game 两路由,起始
+  目的地 setup。
+- `MainActivity.kt`:改为渲染 XiangqiNavHost。
+
+**关键决策**
+- **GameConfigHolder 而非路由参数**:避免对自定义类型做 NavHost Bundle
+  序列化;Setup 写、Game 读。简单可靠。
+- **AI 思考走 Dispatchers.Default**:CPU 密集。viewModelScope 自动绑 Main,
+  协程上下文额外指定 Default 跑搜索。
+- **engine.info 独立 collector + finally cancel**:防止前一次搜索的 SearchInfo
+  串到下一次。
+- **maybeLaunchAi 双重 guard**:`_isAiThinking` + `sideToMove != opponent`,
+  避免 ViewModel 创建时误启动 AI(init block 首次 emit 时玩家还在自己回合)。
+- **onResign 不污染 Repository**:repo.result 来自 CheckmateDetector.decide;
+  认输是 UI 级别的"主动放弃",用 `_resigned: GameResult?` 叠加,优先级最高。
+- **NoopEngine / FakeEngine 测试策略**:既有 GameViewModelTest 用 NoopEngine
+  (HOT_SEAT 永不调用);GameViewModelAiTest 用 FakeEngine(delay + 第一个
+  合法走法),避免真进 Dispatchers.Default 导致 TestDispatcher 失控。
+- **KDoc 内 `engine/self/*` 导致嵌套注释解析失败**:Kotlin 支持 KDoc 嵌套块
+  注释,`/*` 在 KDoc 里被当新注释起点。改写为 `engine/self 下的`。
+
+**验证**
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` ✅
+  - `data/game/`:GameConfigHolderTest(3)
+  - `ui/setup/`:SetupViewModelTest(5)
+  - `ui/game/`:GameViewModelTest(8,既有)+ GameViewModelAiTest(5,新)
+  - 加 M0-M3 既有测试,共 120+ 单测全绿
+- 真机冒烟(用户在合并 PR 后做):
+  - 启动 → SetupScreen(默认人机 / 红方 / 中级)
+  - 切双人本地 → 开始 → 棋盘出现(M3 行为不变)
+  - 返回 Setup → 切人机 / 黑方 / 高级 → 开始 → 红方(AI)先走,
+    TopBar 显示思考深度 / 分数 / 时间 → 红子动画 → 轮到玩家
+  - 玩家走 → 黑方思考 → 黑子动画
+  - 点认输 → 对方胜;点悔棋 → 退 2 ply(人机);点重开 → 回开局
+
+**备注**
+- M4 = Setup + Game 两屏 + 人机循环;M5 才接 Pikafish 引擎(NDK + UCI)
+- material-icons 依赖未引入,GameTopBar 返回按钮用文字"← 返回";M7 视觉
+  打磨时再加依赖 + Icon
+- SelfEngine 已 @Singleton,256K 槽 TT 全 App 复用
+- GameConfigHolder 是 Singleton,App 同时只能 1 局;M6 多局管理时拆掉
+
 ---
 
 <!-- 后续记录在此行上方,保持倒序 -->
