@@ -34,11 +34,15 @@ class Search(
     private val moveOrdering: MoveOrdering,
     private val tt: TranspositionTable,
     private val quiescence: QuiescenceSearch,
+    private val checkCancel: () -> Unit = {},
 ) {
 
     /** 搜索期间累计访问的节点数(含叶节点)。测试可重置。 */
     var nodes: Long = 0
         internal set
+
+    /** 每多少节点检查一次 [checkCancel](平衡取消延迟与开销)。 */
+    private val cancelCheckInterval = 1024L
 
     /**
      * 在根节点搜索 [maxDepth] 层,返回最佳走法 + 当前走子方视角分数。
@@ -82,6 +86,7 @@ class Search(
         ply: Int,
     ): Int {
         nodes++
+        if (nodes % cancelCheckInterval == 0L) checkCancel()
         var localAlpha = alpha
         val key = tt.hash(board, sideToMove)
 
