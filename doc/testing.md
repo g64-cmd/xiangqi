@@ -79,13 +79,25 @@
 
 ## 性能基准(Bench)
 
-`SelfEngine` 加 `SelfEngineBench.kt`,标 `@Ignore("手动跑")`,避免拖慢 CI。手动跑:
+`SelfEngineBench.kt` 标 `@Ignore("手动跑")`,避免拖慢 CI。
+
+**手动运行**:编辑 `SelfEngineBench.kt` 临时去掉 `@Ignore`,然后:
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "*.SelfEngineBench" -PincludeBench
+./gradlew :app:testDebugUnitTest --tests "com.xiangqi.app.engine.self.SelfEngineBench" --info
 ```
 
-输出 nps(nodes per second)数据,记入 `doc/dev-log.md`。
+输出含 nps(nodes per second)与时间,记入 `doc/dev-log.md`。
+
+**M2 基线(本地 JBR 21 桌面 JVM,Win11)**:
+
+| 难度 | depth | movetime | 实测时间 | 节点数 | nps |
+|---|---|---|---|---|---|
+| INTERMEDIATE | 3 | 800ms | **273ms** | 2138 | ~7.8K |
+| ADVANCED | 4 | 1500ms | **448ms** | 8373 | ~18.7K |
+
+depth=4 因 TT / AB / MoveOrdering 共同作用,实际仅用 448ms 就跑完
+8373 节点(理论上限 1500ms),说明迭代加深 + TT 命中收益显著。
 
 ## 模拟器 vs 真机
 
@@ -108,4 +120,4 @@
 ## 后续待补充
 
 - [x] Perft 实际节点数(M1-c 完成,见上表)
-- [ ] SelfEngine 性能基线(M2 完成时)
+- [x] SelfEngine 性能基线(M2 完成,见 Bench 节)
