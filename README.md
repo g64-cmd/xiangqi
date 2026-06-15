@@ -4,7 +4,7 @@
 
 ## 状态
 
-🚧 开发中 —— 当前处于 **M0 工程化基线** 阶段。详见 [doc/roadmap.md](doc/roadmap.md)。
+🚧 开发中 —— 当前处于 **M5 皮卡鱼引擎集成** 完成阶段。详见 [doc/roadmap.md](doc/roadmap.md)。
 
 ## 功能规划
 
@@ -42,6 +42,28 @@
 ```
 
 详见 [doc/build-environment.md](doc/build-environment.md)。
+
+## 准备皮卡鱼引擎二进制(必读)
+
+App 的"皮卡鱼引擎"模式需要在 `app/src/main/assets/pikafish/` 放置两个二进制文件:
+
+```
+app/src/main/assets/pikafish/
+├── pikafish           # arm64-v8a 可执行文件(~1.77 MB)
+└── pikafish.nnue      # NNUE 网络权重(~50.7 MB)
+```
+
+这两个文件因体积过大被 `.gitignore` 忽略,**不会随 git clone 自动获取**。第一次构建前请手动准备:
+
+1. 从 [official-pikafish/Pikafish Releases](https://github.com/official-pikafish/Pikafish/releases) 下载最新 release 包(当前使用 2026.01.31)
+2. 解压后:
+   - 把 `Android/pikafish-armv8` 复制为 `app/src/main/assets/pikafish/pikafish`
+   - 把 `pikafish.nnue` 复制为 `app/src/main/assets/pikafish/pikafish.nnue`
+3. 确认 SHA-256 与 `app/build.gradle.kts` 中 `PIKAFISH_SHA` / `PIKAFISH_NNUE_SHA` 一致;若不一致,Installer 会自动校验失败并拒绝启动
+
+未准备这两个文件时,App 仍可构建、运行,但**人机模式选"皮卡鱼"开局后会抛 IOException**;选"自研引擎"则不受影响。
+
+详见 [doc/engine-integration.md](doc/engine-integration.md)。
 
 ## 目录结构
 
