@@ -59,6 +59,7 @@ fun BoardCanvas(
     lastMove: Move?,
     onTap: (Position) -> Unit,
     animation: BoardAnimation? = null,
+    hintMove: Move? = null,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -88,6 +89,7 @@ fun BoardCanvas(
             drawLastMoveHighlight(layout, lastMove, orientation)
             drawSelectionHighlight(layout, selected, orientation)
             drawLegalTargets(layout, legalTargets, orientation)
+            drawHintArrow(layout, hintMove, orientation)
             drawPieces(layout, board, orientation, lastMove, animation)
             drawAnimationOverlay(layout, animation)
         }
@@ -285,6 +287,48 @@ private fun DrawScope.drawLegalTargets(
         val c = layout.centerOf(vc, vr)
         drawCircle(Cinnabar, radius, c)
     }
+}
+
+/**
+ * 提示箭头(M6 Hint):半透明 Cinnabar 线 + 小三角箭头,画在棋子之下、合法目标点之上。
+ */
+private fun DrawScope.drawHintArrow(
+    layout: BoardLayout,
+    hintMove: Move?,
+    orientation: Side,
+) {
+    if (hintMove == null) return
+    val (fc, fr) = modelToView(hintMove.from, orientation)
+    val (tc, tr) = modelToView(hintMove.to, orientation)
+    val from = layout.centerOf(fc, fr)
+    val to = layout.centerOf(tc, tr)
+
+    val color = Cinnabar.copy(alpha = 0.55f)
+    val strokeWidth = layout.cell * 0.10f
+    val arrowSize = layout.cell * 0.22f
+
+    // 箭头主体:从 from 到 to,但 to 点缩进 arrowSize 让箭头不超出格点
+    val dx = to.x - from.x
+    val dy = to.y - from.y
+    val len = kotlin.math.hypot(dx, dy).coerceAtLeast(0.001f)
+    val ux = dx / len
+    val uy = dy / len
+    val tip = Offset(to.x - ux * arrowSize * 0.5f, to.y - uy * arrowSize * 0.5f)
+    drawLine(color, from, tip, strokeWidth = strokeWidth)
+
+    // 箭头小三角:与方向轴垂直的两个底点 + 尖点
+    val perpX = -uy
+    val perpY = ux
+    val base = Offset(to.x - ux * arrowSize, to.y - uy * arrowSize)
+    val left = Offset(base.x + perpX * arrowSize * 0.6f, base.y + perpY * arrowSize * 0.6f)
+    val right = Offset(base.x - perpX * arrowSize * 0.6f, base.y - perpY * arrowSize * 0.6f)
+    val path = androidx.compose.ui.graphics.Path().apply {
+        moveTo(to.x, to.y)
+        lineTo(left.x, left.y)
+        lineTo(right.x, right.y)
+        close()
+    }
+    drawPath(path, color)
 }
 
 private fun DrawScope.drawLastMoveHighlight(

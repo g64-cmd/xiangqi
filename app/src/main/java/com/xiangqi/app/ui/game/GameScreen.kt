@@ -42,6 +42,7 @@ fun GameScreen(
         onUndo = viewModel::onUndo,
         onResign = viewModel::onResign,
         onRestart = viewModel::onRestart,
+        onHint = viewModel::onHint,
         onExit = onExit,
         modifier = modifier,
     )
@@ -54,6 +55,7 @@ private fun GameScreenContent(
     onUndo: () -> Unit,
     onResign: () -> Unit,
     onRestart: () -> Unit,
+    onHint: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -76,6 +78,8 @@ private fun GameScreenContent(
                 onUndo = onUndo,
                 onResign = onResign,
                 onRestart = onRestart,
+                canHint = state.canHint,
+                onHint = onHint,
             )
         },
     ) { padding ->
@@ -121,6 +125,7 @@ private fun BoardArea(
             lastMove = state.lastMove,
             onTap = onTap,
             animation = animation,
+            hintMove = state.suggestedMove,
         )
     }
 }

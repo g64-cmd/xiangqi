@@ -68,6 +68,7 @@ class GameViewModel @Inject constructor(
     private val _isEngineBusy = MutableStateFlow(false)
     private val _searchInfo = MutableStateFlow<SearchInfo?>(null)
     private val _resigned = MutableStateFlow<GameResult?>(null)
+    private val _suggestedMove = MutableStateFlow<Move?>(null)
     private var aiJob: Job? = null
 
     val uiState: StateFlow<GameUiState> =
@@ -83,6 +84,8 @@ class GameViewModel @Inject constructor(
             state.copy(searchInfo = info)
         }.combine(_resigned) { state, resigned ->
             if (resigned != null) state.copy(result = resigned) else state
+        }.combine(_suggestedMove) { state, hint ->
+            state.copy(suggestedMove = hint)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initialState())
 
     init {
@@ -99,6 +102,11 @@ class GameViewModel @Inject constructor(
         thinking: Boolean,
     ): GameUiState {
         val interact = canInteract(gs, cfg, thinking)
+        // result overlay:认输 / 求和让游戏"视为结束",所有派生门控都按终局处理
+        val effectiveResult: GameResult = _resigned.value ?: gs.result
+        val canHintNow = !thinking &&
+            effectiveResult is GameResult.ONGOING &&
+            (cfg.mode == GameMode.HOT_SEAT || gs.sideToMove == cfg.humanSide)
         return GameUiState(
             board = gs.board,
             sideToMove = gs.sideToMove,
@@ -113,6 +121,8 @@ class GameViewModel @Inject constructor(
             isAiThinking = thinking,
             searchInfo = _searchInfo.value,
             canInteract = interact,
+            suggestedMove = _suggestedMove.value,
+            canHint = canHintNow,
         )
     }
 
@@ -181,6 +191,9 @@ class GameViewModel @Inject constructor(
         val cfg = configHolder.config.value
         if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) return
 
+        // 玩家任何点击都视为"看过提示",清掉 Hint 箭头
+        if (_suggestedMove.value != null) _suggestedMove.value = null
+
         val sel = _selected.value
         val pieceAtTap = s.board[position]
 
@@ -203,6 +216,7 @@ class GameViewModel @Inject constructor(
     fun onUndo() {
         if (_isEngineBusy.value) return
         clearSelection()
+        _suggestedMove.value = null
         val cfg = configHolder.config.value
         val historySize = repo.state.value.history.size
         if (cfg.mode == GameMode.HUMAN_VS_AI && historySize >= 2) {
@@ -216,7 +230,23 @@ class GameViewModel @Inject constructor(
         aiJob?.cancel()
         clearSelection()
         _resigned.value = null
+        _suggestedMove.value = null
         repo.restart()
+    }
+
+    /**
+     * 玩家请求一步提示。仅当引擎空闲、对局进行中、轮到玩家方时可用。
+     * 走 [Difficulty.HINT] 档浅搜,结果填入 [_suggestedMove] 由 BoardCanvas 画箭头。
+     */
+    fun onHint() {
+        val s = repo.state.value
+        if (s.result !is GameResult.ONGOING) return
+        if (_isEngineBusy.value) return
+        val cfg = configHolder.config.value
+        if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) return
+        launchEngine(s, Difficulty.HINT, EngineKind.HINT) { result ->
+            _suggestedMove.value = result.bestMove
+        }
     }
 
     /**
