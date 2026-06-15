@@ -21,6 +21,52 @@
 
 ---
 
+## 2026-06-16 — M5 皮卡鱼引擎集成(分支 feature/M5-pikafish)
+
+**改动**
+- 提取 Pikafish 2026.01.31 release 的 `Android/pikafish-armv8`(1.77 MB)+ `pikafish.nnue`(50.7 MB)
+  到 `app/src/main/assets/pikafish/`(.gitignore 忽略,本机准备)
+- 新增 `engine/pikafish/`:
+  - `PikafishProcess.kt`:`ProcessBuilder` 包装,stdin/stdout/close
+  - `UciSession.kt`:`Dispatchers.IO` 后台读行 + Channel,`send`/`waitFor`/`consume`
+  - `PikafishInstaller.kt`:assets→filesDir 复制,SHA-256 校验,`setExecutable(true, true)`
+  - `PikafishEngine.kt`:实现 `Engine` 接口,`ucinewgame`+`setoption Skill Level`+`position fen`+
+    `go movetime`+`bestmove`/`info` 解析,score mate 通过 `Score.mateScore` 映射
+- 新增 `engine/EngineProvider.kt`(`fun interface`)+ `di/EngineQualifiers.kt`(@SelfEngineQual/@PikafishEngineQual),
+  `GameModule` 重构为按 EngineType 选择实现,GameViewModel 改注入 `EngineProvider`
+- `data/game/GameConfig.kt` 加 `engineType` 字段;SetupUiState/SetupViewModel 加 `onEngineTypeChange`;
+  SetupScreen 加"AI 引擎"SegmentedButton(皮卡鱼 / 自研),难度 label 按引擎切换显示 Skill vs 深度
+- 新增 `ui/about/AboutScreen.kt` + NavHost `about` 路由:SetupScreen 顶部"关于"入口,
+  展示 GPL-3.0 协议、Pikafish 版本、NNUE 权重授权、源码链接,满足 GPL 合规
+- `app/build.gradle.kts` 加 `buildConfigField` 三项:PIKAFISH_SHA / PIKAFISH_NNUE_SHA / PIKAFISH_VERSION
+- `gradle/libs.versions.toml` 加 `androidx.test:core` 别名(用于 Installer 测试)
+
+**关键决策**
+- **二进制来源**:用 release 包预编译而非 NDK 自编译,避免工具链/源码同步成本
+- **测试策略**:PikafishInstaller 用 mockk 模拟 Context + AssetManager 而非 Robolectric,
+  避开 Robolectric SDK 36 不支持 + android-all jar 网络下载问题;Installer 把 expectedSha
+  与 assetName 改为可注入字段以便测试
+- **EngineProvider 接口**:避免 Hilt 同接口两 binding 歧义,ViewModel 在 launchAiMove 时
+  按 `cfg.engineType` 拿对应实现
+- **UCI info 解析**:抽 `parseInfo` 静态方法,纯 JVM 测覆盖 6 用例(典型行、mate 正负、
+  字段乱序、info string 跳过)
+
+**验证**
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` 三 job 全绿
+- M5 新增测试:PikafishEngineParseInfoTest 6 用例 + PikafishInstallerTest 4 用例 + SetupViewModelTest +2 用例 = 12 新用例
+- 既有 M0-M4 测试无回归
+- 真机冒烟待用户在合并 PR 后做(`./gradlew :app:installDebug`),需先确认 assets/pikafish/
+  内二进制已就位
+
+**备注**
+- M5 验证无法在 CI 自动跑(assets 不进 git);本地端到端依赖开发者本机二进制
+- 引擎进程长存,App 退出时依赖 Android 进程清理;后续可加 `@PreDestroy` 显式关闭
+- 单 PR 全部 M5 子任务,共 8 commits(PikafishProcess / UciSession / Installer+测试 /
+  PikafishEngine+测试 / EngineProvider+GameConfig+Setup+GameViewModel / SetupScreen
+  引擎开关 / AboutScreen / 文档同步)
+
+---
+
 ## 2026-06-15 — 项目初始化(commit: 3cea5fc)
 
 **改动**
