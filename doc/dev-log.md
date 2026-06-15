@@ -115,4 +115,52 @@
 
 ---
 
+## 2026-06-15 — M2 自研搜索引擎完成(分支 feature/M2)
+
+**改动**
+- `domain/eval/Evaluation.kt`:子力 + 7 兵种 PST,当前走子方视角(供 Negamax 直接用)。
+  棋子价值:K=10000 / R=90 / C=45 / N=40 / A,B=20 / P=10。
+- `engine/`:Engine 接口(suspend search + StateFlow<SearchInfo?>)、
+  EngineResult、EngineType(SELF/PIKAFISH)、Difficulty(4 档)、Score、SearchInfo。
+- `engine/self/`:
+  - TranspositionTable:64-bit Zobrist(90×14 棋子键 + 走子方键),
+    固定种子,always-replace,256K 槽。storeMateScore/retrieveMateScore 做 ply 视角转换。
+  - MoveOrdering:TT move > 吃子(CAPTURE_BASE + MVV-LVA)> 将军走法。
+  - QuiescenceSearch:depth=0 后展开吃子走法,最大 6 ply,解决地平线效应。
+  - Search:Negamax + Alpha-Beta + TT probe/write + QSearch 叶节点。
+  - SelfEngine:迭代加深 + 协程取消(coroutineContext[Job].isActive)+ movetime
+    (deadline 检查),超时回退上次完整深度结果。
+- 依赖:加 `kotlinx-coroutines-core`(M1 仅有 -test)。
+
+**关键决策**
+- **Zobrist** 优先于 `Board.hashCode()`:50 行换 64-bit 无碰撞 + ~5x hash 速度。
+- **不可变 Board 沿用 M1**:M2 沿用 applyMove(copyOf 90 元素),
+  make/unmake 推迟到 M3 视性能需要。
+- **SelfEngine.checkCancel** 走 `coroutineContext[Job].isActive`,而非 `ensureActive()`
+  (后者 suspend,无法在 negamax 同步循环内调用)。
+- Truth 的 `named()` 在 1.4 被移除,断言失败信息改用 `throw AssertionError`。
+
+**验证**
+- `./gradlew :app:testDebugUnitTest` ✅
+  - `domain/eval/`:7 个测试
+  - `engine/self/`:TranspositionTableTest(11)、MoveOrderingTest(5)、
+    SearchMateTest(4)、AlphaBetaPruningTest(1)、QuiescenceSearchTest(3)、
+    TranspositionTableIntegrationTest(1)、SelfEngineTest(5)、
+    SelfEngineBalanceTest(3)、DifficultyGradientTest(3)
+- `./gradlew :app:lintDebug` ✅
+- `./gradlew :app:assembleDebug` ✅
+- **AB 剪枝**:初始局面 depth=3,AB 节点数 < 宽窗口 70%(实测通过)
+- **TT 集成**:第二次相同搜索节点数 < 第一次的 10%
+- **性能基准**(`SelfEngineBench`,@Ignore,本地 JBR 21 桌面 JVM):
+  - depth=3(INTERMEDIATE):**273ms**,2138 nodes
+  - depth=4(ADVANCED):**448ms**,8373 nodes,nps ≈ 18.7K
+  - 远低于目标(depth=3 < 1s, depth=4 < 3s)
+
+**备注**
+- 期望棋力:depth=4 在桌面 JVM ~0.5s,约业余 1-2 级
+- M3 视性能/UX 需要再决定是否引入 make/unmake 增量 Zobrist 更新
+- SelfEngineBench 在 PR 中 @Ignore 跳过,本地手动跑
+
+---
+
 <!-- 后续记录在此行上方,保持倒序 -->

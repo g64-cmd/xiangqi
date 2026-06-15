@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-🎯 **M1 — 领域模型与规则引擎**(已完成,Perft depth 3 对账一致)
+🎯 **M2 — 自研搜索引擎**(已完成,Negamax + AB + TT + QSearch + 4 档难度)
 
-下一步:M2 自研搜索引擎。
+下一步:M3 棋盘 UI。
 
 ## 里程碑清单
 
@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | M0 | 工程化基线 | ✅ 完成 | CI、文档骨架、包名重命名、Android 风配色、Hilt+KSP | feature/M0-baseline + feature/M0-hilt-retry |
 | M1 | 领域模型与规则引擎 | ✅ 完成 | 棋盘、棋子、走法生成、FEN、将军/将死判定 | feature/M1,76 单测全绿,Perft d1/d2/d3 = 44/1920/79666 |
-| M2 | 自研搜索引擎 | ⏳ 待启动 | Minimax + AB + 估值 + 难度档位 | feature/M2-* |
+| M2 | 自研搜索引擎 | ✅ 完成 | Negamax + AB + Zobrist TT + QSearch + 4 档难度 | feature/M2,bench d3=273ms / d4=448ms |
 | M3 | 棋盘 UI | ⏳ 待启动 | Canvas 棋盘、棋子、点击交互、动画 | feature/M3-* |
 | M4 | 游戏流程 | ⏳ 待启动 | 主循环、设置界面、悔棋/重开/认输 | feature/M4-* |
 | M5 | 皮卡鱼引擎集成 | ⏳ 待启动 | NDK 编译、子进程、UCI 协议、难度映射 | feature/M5-* |
