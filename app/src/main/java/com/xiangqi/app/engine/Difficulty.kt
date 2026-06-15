@@ -11,4 +11,10 @@ enum class Difficulty(val depth: Int, val moveTimeMs: Long) {
     ELEMENTARY(2, 300),
     INTERMEDIATE(3, 800),
     ADVANCED(4, 1500),
+
+    /**
+     * 提示档(M6 起):固定浅搜,用于"提示"按钮给玩家一步建议。
+     * 不在 SetupScreen 暴露给用户选择,仅供内部调用。
+     */
+    HINT(2, 400),
 }
