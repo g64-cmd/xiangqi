@@ -25,6 +25,12 @@ android {
         ndk {
             abiFilters += "arm64-v8a"
         }
+
+        // M5:pikafish 二进制 SHA-256(arm64-v8a,版本 2026.01.31)。
+        // Installer 用此值校验 assets 复制后的可执行文件完整性。
+        buildConfigField("String", "PIKAFISH_SHA", "\"971b979c970a92d413d8f53c9ea4d3296a37dee8fe9cfcc133ebca98c831801a\"")
+        buildConfigField("String", "PIKAFISH_NNUE_SHA", "\"c4026370d7516d9b0f668447f9ca1931241538bdc689cde6fec6a991ac4d5f77\"")
+        buildConfigField("String", "PIKAFISH_VERSION", "\"2026.01.31\"")
     }
 
     buildTypes {
@@ -77,6 +83,7 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
