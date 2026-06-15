@@ -1,6 +1,8 @@
 package com.xiangqi.app.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -11,7 +13,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
 import com.xiangqi.app.domain.model.Board
 import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Piece
@@ -58,17 +60,33 @@ fun BoardCanvas(
     animation: BoardAnimation? = null,
     modifier: Modifier = Modifier,
 ) {
-    Canvas(modifier = modifier.fillMaxSize()) {
-        val layout = computeLayout(size.width, size.height)
-        drawBackground()
-        drawOuterBorder(layout)
-        drawGrid(layout)
-        val textSizePx = layout.cell * 0.45f
-        drawRiverText(layout, textSizePx)
-        drawPalaces(layout, orientation)
-        drawPositionMarkers(layout, orientation)
-        // 后续 commit 添加:drawLastMoveHighlight / drawSelectionHighlight /
-        // drawLegalTargets / drawPieces / drawAnimationOverlay / 点击处理
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val widthPx = constraints.maxWidth.toFloat()
+        val heightPx = constraints.maxHeight.toFloat()
+        val layout = computeLayout(widthPx, heightPx)
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(layout, orientation, onTap) {
+                    detectTapGestures { offset ->
+                        val viewCol = ((offset.x - layout.marginX) / layout.cell).toInt()
+                        val viewRow = ((offset.y - layout.marginY) / layout.cell).toInt()
+                        if (viewCol in 0..Position.COL_MAX && viewRow in 0..Position.ROW_MAX) {
+                            onTap(viewToModel(viewCol, viewRow, orientation))
+                        }
+                    }
+                },
+        ) {
+            drawBackground()
+            drawOuterBorder(layout)
+            drawGrid(layout)
+            val textSizePx = layout.cell * 0.45f
+            drawRiverText(layout, textSizePx)
+            drawPalaces(layout, orientation)
+            drawPositionMarkers(layout, orientation)
+            // 后续 commit 添加:drawLastMoveHighlight / drawSelectionHighlight /
+            // drawLegalTargets / drawPieces / drawAnimationOverlay
+        }
     }
 }
 
