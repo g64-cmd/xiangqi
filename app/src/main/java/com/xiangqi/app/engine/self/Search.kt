@@ -33,6 +33,7 @@ class Search(
     private val checkDetector: CheckDetector,
     private val moveOrdering: MoveOrdering,
     private val tt: TranspositionTable,
+    private val quiescence: QuiescenceSearch,
 ) {
 
     /** 搜索期间累计访问的节点数(含叶节点)。测试可重置。 */
@@ -98,7 +99,7 @@ class Search(
 
         val moves = legality.legalMoves(board, gen.movesFor(board, sideToMove))
         if (moves.isEmpty()) return terminalScore(sideToMove, ply)
-        if (depth <= 0) return evaluation.evaluate(board, sideToMove)
+        if (depth <= 0) return quiescence.qSearch(board, sideToMove, alpha, beta, ply)
 
         val ordered = moveOrdering.sort(board, moves, sideToMove, ttMove)
         var bestMove: Move? = null

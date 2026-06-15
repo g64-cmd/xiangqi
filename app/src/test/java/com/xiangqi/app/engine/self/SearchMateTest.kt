@@ -27,7 +27,8 @@ class SearchMateTest {
     private val eval = Evaluation()
     private val ordering = MoveOrdering(gen, checkDetector)
     private val tt = TranspositionTable(1 shl 18)
-    private val search = Search(gen, legality, eval, checkDetector, ordering, tt)
+    private val quiescence = QuiescenceSearch(gen, legality, eval, ordering)
+    private val search = Search(gen, legality, eval, checkDetector, ordering, tt, quiescence)
 
     @Test
     fun `initial position returns non-null bestMove with positive nodes`() {
