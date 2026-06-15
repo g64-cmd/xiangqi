@@ -89,7 +89,7 @@ fun BoardCanvas(
             drawSelectionHighlight(layout, selected, orientation)
             drawLegalTargets(layout, legalTargets, orientation)
             drawPieces(layout, board, orientation, lastMove, animation)
-            // 后续 commit 添加:drawAnimationOverlay
+            drawAnimationOverlay(layout, animation)
         }
     }
 }
@@ -243,7 +243,20 @@ private fun DrawScope.drawCrosshair(
     }
 }
 
-/** 后续 commit 在此追加:drawAnimationOverlay */
+private fun DrawScope.drawAnimationOverlay(
+    layout: BoardLayout,
+    animation: BoardAnimation?,
+) {
+    if (animation == null) return
+    val radius = layout.cell * 0.42f
+    val fontSizePx = layout.cell * 0.5f
+    val t = animation.progress.coerceIn(0f, 1f)
+    val cx = animation.fromView.x + (animation.toView.x - animation.fromView.x) * t
+    val cy = animation.fromView.y + (animation.toView.y - animation.fromView.y) * t
+    with(PiecePainter) {
+        drawPiece(Offset(cx, cy), radius, animation.movingPiece, fontSizePx)
+    }
+}
 
 private fun DrawScope.drawSelectionHighlight(
     layout: BoardLayout,
