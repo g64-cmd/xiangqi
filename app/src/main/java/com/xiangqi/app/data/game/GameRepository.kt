@@ -6,6 +6,7 @@ import com.xiangqi.app.domain.model.Board
 import com.xiangqi.app.domain.model.GameResult
 import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Side
+import com.xiangqi.app.domain.movegen.MoveGenerator
 import com.xiangqi.app.domain.rules.CheckmateDetector
 import com.xiangqi.app.domain.rules.MoveLegality
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +42,7 @@ data class GameState(
  */
 @Singleton
 class GameRepository @Inject constructor(
+    private val moveGenerator: MoveGenerator,
     private val moveLegality: MoveLegality,
     private val checkmateDetector: CheckmateDetector,
 ) {
@@ -52,6 +54,10 @@ class GameRepository @Inject constructor(
         val s = _state.value
         if (s.result !is GameResult.ONGOING) return false
         if (move.side != s.sideToMove) return false
+        // 必须先匹配 MoveGenerator 的伪合法走法(几何合法),否则 Board.applyMove 会
+        // 无视几何规则搬运棋子(它是纯搬子,不做规则校验)。
+        val pseudoLegal = moveGenerator.movesFrom(s.board, move.from)
+        if (pseudoLegal.none { it.to == move.to }) return false
         if (!moveLegality.isLegal(s.board, move)) return false
 
         val newBoard = s.board.applyMove(move)

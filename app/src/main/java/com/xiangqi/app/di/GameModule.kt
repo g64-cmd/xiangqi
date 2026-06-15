@@ -51,7 +51,8 @@ object GameModule {
     @Provides
     @Singleton
     fun provideGameRepository(
+        gen: MoveGenerator,
         legality: MoveLegality,
         checkmate: CheckmateDetector,
-    ): GameRepository = GameRepository(legality, checkmate)
+    ): GameRepository = GameRepository(gen, legality, checkmate)
 }
