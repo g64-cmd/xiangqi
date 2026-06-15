@@ -80,6 +80,7 @@ private fun GameScreenContent(
                 result = state.result,
                 isAiThinking = state.isAiThinking,
                 searchInfo = state.searchInfo,
+                currentScore = state.currentScore,
                 onExit = onExit,
             )
         },
