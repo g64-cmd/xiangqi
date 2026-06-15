@@ -37,9 +37,9 @@ class Search(
     @Suppress("UNUSED_PARAMETER") tt: TranspositionTable,
 ) {
 
-    /** 搜索期间累计访问的节点数(含叶节点)。 */
+    /** 搜索期间累计访问的节点数(含叶节点)。测试可重置。 */
     var nodes: Long = 0
-        private set
+        internal set
 
     /** 在根节点搜索 [maxDepth] 层,返回最佳走法 + 当前走子方视角分数。 */
     fun searchRoot(board: Board, sideToMove: Side, maxDepth: Int): Pair<Move?, Int> {
