@@ -19,6 +19,7 @@ import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Piece
 import com.xiangqi.app.domain.model.Position
 import com.xiangqi.app.domain.model.Side
+import com.xiangqi.app.ui.theme.Cinnabar
 import com.xiangqi.app.ui.theme.CinnabarLight
 import com.xiangqi.app.ui.theme.InkBlack
 import com.xiangqi.app.ui.theme.InkGray
@@ -85,8 +86,10 @@ fun BoardCanvas(
             drawPalaces(layout, orientation)
             drawPositionMarkers(layout, orientation)
             drawLastMoveHighlight(layout, lastMove, orientation)
+            drawSelectionHighlight(layout, selected, orientation)
+            drawLegalTargets(layout, legalTargets, orientation)
             drawPieces(layout, board, orientation, lastMove, animation)
-            // 后续 commit 添加:drawSelectionHighlight / drawLegalTargets / drawAnimationOverlay
+            // 后续 commit 添加:drawAnimationOverlay
         }
     }
 }
@@ -240,7 +243,36 @@ private fun DrawScope.drawCrosshair(
     }
 }
 
-/** 后续 commit 在此追加:drawSelectionHighlight / drawLegalTargets / drawAnimationOverlay */
+/** 后续 commit 在此追加:drawAnimationOverlay */
+
+private fun DrawScope.drawSelectionHighlight(
+    layout: BoardLayout,
+    selected: Position?,
+    orientation: Side,
+) {
+    if (selected == null) return
+    val (vc, vr) = modelToView(selected, orientation)
+    val c = layout.centerOf(vc, vr)
+    val rectSize = layout.cell * 0.7f
+    drawRect(
+        color = Cinnabar.copy(alpha = 0.35f),
+        topLeft = Offset(c.x - rectSize / 2, c.y - rectSize / 2),
+        size = Size(rectSize, rectSize),
+    )
+}
+
+private fun DrawScope.drawLegalTargets(
+    layout: BoardLayout,
+    legalTargets: Set<Position>,
+    orientation: Side,
+) {
+    val radius = layout.cell * 0.12f
+    for (p in legalTargets) {
+        val (vc, vr) = modelToView(p, orientation)
+        val c = layout.centerOf(vc, vr)
+        drawCircle(Cinnabar, radius, c)
+    }
+}
 
 private fun DrawScope.drawLastMoveHighlight(
     layout: BoardLayout,
