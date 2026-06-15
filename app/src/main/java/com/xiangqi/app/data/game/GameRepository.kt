@@ -3,6 +3,7 @@ package com.xiangqi.app.data.game
 import com.xiangqi.app.data.model.HistoryEntry
 import com.xiangqi.app.domain.fen.FenParser
 import com.xiangqi.app.domain.model.Board
+import com.xiangqi.app.domain.model.DrawReason
 import com.xiangqi.app.domain.model.GameResult
 import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Side
@@ -89,6 +90,19 @@ class GameRepository @Inject constructor(
     /** 重置到标准开局。 */
     fun restart() {
         _state.value = initialState()
+    }
+
+    /**
+     * 直接设置和棋结果(不修改 history)。仅当对局仍 [GameResult.ONGOING] 时生效;
+     * 返回 false 表示对局已结束,操作被忽略。
+     *
+     * 典型用途:玩家与对手协商一致(M6 求和按钮)。
+     */
+    fun setDraw(reason: DrawReason): Boolean {
+        val s = _state.value
+        if (s.result !is GameResult.ONGOING) return false
+        _state.value = s.copy(result = GameResult.Draw(reason))
+        return true
     }
 
     private fun initialState(): GameState {

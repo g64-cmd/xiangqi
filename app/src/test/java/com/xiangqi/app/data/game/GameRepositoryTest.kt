@@ -6,6 +6,7 @@ import com.xiangqi.app.domain.movegen.MoveGeneratorImpl
 import com.xiangqi.app.domain.model.GameResult
 import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Side
+import com.xiangqi.app.domain.model.DrawReason
 import com.xiangqi.app.domain.rules.CheckDetector
 import com.xiangqi.app.domain.rules.CheckmateDetector
 import com.xiangqi.app.domain.rules.MoveLegality
@@ -116,5 +117,33 @@ class GameRepositoryTest {
         assertThat(s.sideToMove).isEqualTo(Side.RED)
         assertThat(s.history).isEmpty()
         assertThat(s.result).isEqualTo(GameResult.ONGOING)
+    }
+
+    @Test
+    fun `setDraw sets result to Draw AGREED while ONGOING`() {
+        val repo = newRepo()
+        repo.applyMove(Move.fromUci("h2e2", Side.RED))
+        val ok = repo.setDraw(DrawReason.AGREED)
+        assertThat(ok).isTrue()
+        val s = repo.state.value
+        assertThat(s.result).isEqualTo(GameResult.Draw(DrawReason.AGREED))
+    }
+
+    @Test
+    fun `setDraw rejected after game over`() {
+        val repo = newRepo()
+        repo.setDraw(DrawReason.AGREED)
+        val ok = repo.setDraw(DrawReason.AGREED)
+        assertThat(ok).isFalse()
+    }
+
+    @Test
+    fun `setDraw does not modify history`() {
+        val repo = newRepo()
+        repo.applyMove(Move.fromUci("h2e2", Side.RED))
+        repo.applyMove(Move.fromUci("h9g7", Side.BLACK))
+        val historyBefore = repo.state.value.history
+        repo.setDraw(DrawReason.AGREED)
+        assertThat(repo.state.value.history).isEqualTo(historyBefore)
     }
 }
