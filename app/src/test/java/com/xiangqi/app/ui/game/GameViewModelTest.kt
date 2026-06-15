@@ -13,6 +13,7 @@ import com.xiangqi.app.domain.rules.CheckmateDetector
 import com.xiangqi.app.domain.rules.MoveLegality
 import com.xiangqi.app.engine.Difficulty
 import com.xiangqi.app.engine.Engine
+import com.xiangqi.app.engine.EngineProvider
 import com.xiangqi.app.engine.EngineResult
 import com.xiangqi.app.engine.EngineType
 import com.xiangqi.app.engine.SearchInfo
@@ -64,9 +65,9 @@ class GameViewModelTest {
         val checkmate = CheckmateDetector(gen, check, legality)
         val repo = GameRepository(gen, legality, checkmate)
         val holder = GameConfigHolder()
-        // HOT_SEAT 模式 + FakeEngine,既有用例不受 AI 干扰
+        // HOT_SEAT 模式 + NoopEngine 包装的 Provider,既有用例不受 AI 干扰
         holder.set(GameConfig(mode = GameMode.HOT_SEAT))
-        return GameViewModel(repo, gen, legality, NoopEngine, holder)
+        return GameViewModel(repo, gen, legality, NoopProvider, holder)
     }
 
     /** 在 runTest 内订阅 uiState 并等待 viewModelScope 跑完一轮,返回当前值。 */
@@ -172,7 +173,7 @@ class GameViewModelTest {
 }
 
 /**
- * 不干活的 Engine:HOT_SEAT 模式下永远不会被调用,但 GameViewModel 构造时需要它。
+ * 不干活的 Engine + 包装 Provider:HOT_SEAT 模式下永远不会被调用。
  * 若意外被调用,抛异常以暴露误用。
  */
 private object NoopEngine : Engine {
@@ -183,5 +184,9 @@ private object NoopEngine : Engine {
         sideToMove: Side,
         difficulty: Difficulty,
     ): EngineResult = error("NoopEngine should never be invoked in HOT_SEAT mode")
+}
+
+private object NoopProvider : EngineProvider {
+    override fun provide(type: EngineType): Engine = NoopEngine
 }
 

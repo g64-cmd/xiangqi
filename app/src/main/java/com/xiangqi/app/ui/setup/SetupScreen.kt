@@ -1,5 +1,6 @@
 package com.xiangqi.app.ui.setup
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,11 +34,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiangqi.app.domain.model.Side
 import com.xiangqi.app.engine.Difficulty
+import com.xiangqi.app.engine.EngineType
 import com.xiangqi.app.ui.game.GameMode
 
 @Composable
 fun SetupScreen(
     onStart: () -> Unit,
+    onAbout: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: SetupViewModel = hiltViewModel(),
 ) {
@@ -47,7 +50,9 @@ fun SetupScreen(
         onModeChange = viewModel::onModeChange,
         onSideChange = viewModel::onSideChange,
         onDifficultyChange = viewModel::onDifficultyChange,
+        onEngineTypeChange = viewModel::onEngineTypeChange,
         onStart = { viewModel.onStart(onStart) },
+        onAbout = onAbout,
         modifier = modifier,
     )
 }
@@ -59,7 +64,9 @@ private fun SetupScreenContent(
     onModeChange: (GameMode) -> Unit,
     onSideChange: (Side) -> Unit,
     onDifficultyChange: (Difficulty) -> Unit,
+    onEngineTypeChange: (EngineType) -> Unit,
     onStart: () -> Unit,
+    onAbout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(modifier = modifier.fillMaxSize()) { padding ->
@@ -76,6 +83,15 @@ private fun SetupScreenContent(
                 text = "中国象棋",
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
+            )
+
+            Text(
+                text = "关于",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clickable(onClick = onAbout)
+                    .padding(vertical = 4.dp),
             )
 
             Column(
@@ -112,6 +128,22 @@ private fun SetupScreenContent(
                 }
 
                 Column(
+                    modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("AI 引擎", style = MaterialTheme.typography.titleMedium)
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        EngineType.entries.forEachIndexed { index, t ->
+                            SegmentedButton(
+                                selected = state.engineType == t,
+                                onClick = { onEngineTypeChange(t) },
+                                shape = SegmentedButtonDefaults.itemShape(index, EngineType.entries.size),
+                            ) { Text(engineLabel(t)) }
+                        }
+                    }
+                }
+
+                Column(
                     modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth().selectableGroup(),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -134,7 +166,7 @@ private fun SetupScreenContent(
                                 onClick = null,
                             )
                             Text(
-                                text = difficultyLabel(d),
+                                text = difficultyLabel(d, state.engineType),
                                 style = MaterialTheme.typography.bodyLarge,
                             )
                         }
@@ -151,9 +183,28 @@ private fun SetupScreenContent(
     }
 }
 
-private fun difficultyLabel(d: Difficulty): String = when (d) {
-    Difficulty.BEGINNER -> "初学(深度 1)"
-    Difficulty.ELEMENTARY -> "初级(深度 2)"
-    Difficulty.INTERMEDIATE -> "中级(深度 3)"
-    Difficulty.ADVANCED -> "高级(深度 4)"
+private fun difficultyLabel(d: Difficulty, engineType: EngineType): String {
+    val suffix = when (engineType) {
+        EngineType.SELF -> "深度 ${d.depth}"
+        EngineType.PIKAFISH -> "Skill ${pikafishSkill(d)}"
+    }
+    val base = when (d) {
+        Difficulty.BEGINNER -> "初学"
+        Difficulty.ELEMENTARY -> "初级"
+        Difficulty.INTERMEDIATE -> "中级"
+        Difficulty.ADVANCED -> "高级"
+    }
+    return "$base($suffix)"
+}
+
+private fun engineLabel(t: EngineType): String = when (t) {
+    EngineType.PIKAFISH -> "皮卡鱼"
+    EngineType.SELF -> "自研"
+}
+
+private fun pikafishSkill(d: Difficulty): Int = when (d) {
+    Difficulty.BEGINNER -> 0
+    Difficulty.ELEMENTARY -> 5
+    Difficulty.INTERMEDIATE -> 12
+    Difficulty.ADVANCED -> 20
 }

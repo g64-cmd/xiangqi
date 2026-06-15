@@ -28,12 +28,16 @@ interface Engine {
 
 ## 难度档位(`Difficulty` 枚举)
 
-| 档位 | 自研引擎 | 皮卡鱼 |
+M5 已实现映射(见 `engine/pikafish/PikafishEngine.kt:pikafishSkill`):
+
+| 档位 | 自研引擎(depth/movetime) | 皮卡鱼(Skill Level / movetime) |
 |---|---|---|
-| 新手 (BEGINNER) | depth=1, movetime=100ms | Skill=0, movetime=200ms |
-| 初级 (EASY) | depth=2, movetime=300ms | Skill=5, movetime=400ms |
-| 中级 (MEDIUM) | depth=3, movetime=800ms | Skill=12, movetime=900ms |
-| 高级 (HARD) | depth=4, movetime=1500ms | Skill=20, Threads=2, Hash=128, movetime=3000ms |
+| 新手 (BEGINNER) | depth=1, movetime=100ms | Skill=0, movetime=100ms |
+| 初级 (ELEMENTARY) | depth=2, movetime=300ms | Skill=5, movetime=300ms |
+| 中级 (INTERMEDIATE) | depth=3, movetime=800ms | Skill=12, movetime=800ms |
+| 高级 (ADVANCED) | depth=4, movetime=1500ms | Skill=20, movetime=1500ms |
+
+皮卡鱼 Threads 固定为 1。
 
 ## 皮卡鱼集成方案
 
@@ -109,15 +113,27 @@ interface Engine {
 
 | 项 | 值 |
 |---|---|
-| Pikafish 版本 | TBD |
-| NNUE 网络版本 | TBD |
-| 可执行文件大小 | TBD |
-| NNUE 文件大小 | TBD |
-| APK 增量 | TBD |
+| Pikafish 版本 | 2026.01.31 |
+| NNUE 网络版本 | 2026.01.31(随 release) |
+| 可执行文件大小 | 1.77 MB(pikafish-armv8) |
+| NNUE 文件大小 | 50.7 MB(pikafish.nnue) |
+| APK 增量 | ~52 MB(assets 内嵌) |
+| ABI | arm64-v8a |
+| PIKAFISH_SHA | 971b979c970a92d413d8f53c9ea4d3296a37dee8fe9cfcc133ebca98c831801a |
+| PIKAFISH_NNUE_SHA | c4026370d7516d9b0f668447f9ca1931241538bdc689cde6fec6a991ac4d5f77 |
 
 ## scripts/build-pikafish.sh
 
-M5 准备时补充脚本与使用说明。
+M5 采用"从官方 release 包提取预编译二进制"路径(非 NDK 自编译),
+故未生成构建脚本。如未来需要从源码自编译,流程:
+
+```bash
+# 前提:NDK r27c+ 已配置
+git clone https://github.com/official-pikafish/Pikafish
+cd Pikafish/src
+make -j build ARCH=armv8 COMP=ndk
+# 产出 pikafish + pikafish.nnue,放入 app/src/main/assets/pikafish/
+```
 
 ## 常见坑
 
@@ -128,6 +144,8 @@ M5 准备时补充脚本与使用说明。
 
 ## 后续待补充
 
-- [ ] `scripts/build-pikafish.sh` 脚本(M5 启动时)
-- [ ] NNUE 体积基线(M5 完成时)
-- [ ] `BuildConfig.PIKAFISH_SHA` 配置(M5)
+- [x] NNUE 体积基线(M5 完成时,见上)
+- [x] `BuildConfig.PIKAFISH_SHA` 配置(M5,见 `app/build.gradle.kts:defaultConfig.buildConfigField`)
+- [x] `BuildConfig.PIKAFISH_NNUE_SHA` 配置(M5)
+- [x] `BuildConfig.PIKAFISH_VERSION` 配置(M5)
+- [ ] scripts/build-pikafish.sh(若改用 NDK 自编译时补充)

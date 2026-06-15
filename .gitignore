@@ -79,5 +79,8 @@ Thumbs.db
 /pikafish-bin/
 /app/src/main/assets/pikafish/
 
+# 原始 release 包(用户本机解压,不进 git)
+/皮卡鱼 20260131/
+
 # Claude Code workspace
 /.claude/

@@ -13,7 +13,7 @@ import com.xiangqi.app.domain.model.Position
 import com.xiangqi.app.domain.model.Side
 import com.xiangqi.app.domain.movegen.MoveGenerator
 import com.xiangqi.app.domain.rules.MoveLegality
-import com.xiangqi.app.engine.Engine
+import com.xiangqi.app.engine.EngineProvider
 import com.xiangqi.app.engine.SearchInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -52,7 +52,7 @@ class GameViewModel @Inject constructor(
     private val repo: GameRepository,
     private val moveGenerator: MoveGenerator,
     private val moveLegality: MoveLegality,
-    private val engine: Engine,
+    private val engineProvider: EngineProvider,
     private val configHolder: GameConfigHolder,
 ) : ViewModel() {
 
@@ -128,13 +128,15 @@ class GameViewModel @Inject constructor(
     private fun launchAiMove(s: GameState) {
         aiJob?.cancel()
         _isAiThinking.value = true
+        val cfg = configHolder.config.value
+        val engine = engineProvider.provide(cfg.engineType)
         aiJob = viewModelScope.launch(Dispatchers.Default) {
             val infoCollector = launch { engine.info.collect { _searchInfo.value = it } }
             try {
                 val result = engine.search(
                     board = s.board,
                     sideToMove = s.sideToMove,
-                    difficulty = configHolder.config.value.difficulty,
+                    difficulty = cfg.difficulty,
                 )
                 repo.applyMove(result.bestMove)
             } catch (_: CancellationException) {
