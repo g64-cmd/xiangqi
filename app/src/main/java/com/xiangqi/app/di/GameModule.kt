@@ -1,5 +1,6 @@
 package com.xiangqi.app.di
 
+import com.xiangqi.app.data.game.GameRepository
 import com.xiangqi.app.domain.movegen.MoveGenerator
 import com.xiangqi.app.domain.movegen.MoveGeneratorImpl
 import com.xiangqi.app.domain.rules.CheckDetector
@@ -46,4 +47,11 @@ object GameModule {
         check: CheckDetector,
         legality: MoveLegality,
     ): CheckmateDetector = CheckmateDetector(gen, check, legality)
+
+    @Provides
+    @Singleton
+    fun provideGameRepository(
+        legality: MoveLegality,
+        checkmate: CheckmateDetector,
+    ): GameRepository = GameRepository(legality, checkmate)
 }
