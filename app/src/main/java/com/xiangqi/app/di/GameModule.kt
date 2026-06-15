@@ -8,6 +8,8 @@ import com.xiangqi.app.domain.rules.CheckDetector
 import com.xiangqi.app.domain.rules.CheckmateDetector
 import com.xiangqi.app.domain.rules.MoveLegality
 import com.xiangqi.app.engine.Engine
+import com.xiangqi.app.engine.EngineProvider
+import com.xiangqi.app.engine.EngineProviderImpl
 import com.xiangqi.app.engine.self.MoveOrdering
 import com.xiangqi.app.engine.self.SelfEngine
 import com.xiangqi.app.engine.self.TranspositionTable
@@ -77,11 +79,12 @@ object GameModule {
     fun provideTranspositionTable(): TranspositionTable = TranspositionTable(1 shl 18)
 
     /**
-     * 把 [SelfEngine] 绑定为 [Engine] 接口。M5 接 PikafishEngine 时按 @Qualifier 切换。
+     * 把 [SelfEngine] 绑定为 [Engine] 接口,用 [@SelfEngineQual] 区分皮卡鱼实现。
      * 标 @Singleton 以复用 256K 槽的 TranspositionTable。
      */
     @Provides
     @Singleton
+    @SelfEngineQual
     fun provideSelfEngine(
         gen: MoveGenerator,
         legality: MoveLegality,
@@ -91,4 +94,19 @@ object GameModule {
         moveOrdering: MoveOrdering,
         tt: TranspositionTable,
     ): Engine = SelfEngine(gen, legality, evaluation, checkDetector, checkmate, moveOrdering, tt)
+
+    /**
+     * 把 [PikafishEngine] 绑定为 [Engine] 接口,用 [@PikafishEngineQual] 区分。
+     */
+    @Provides
+    @Singleton
+    @PikafishEngineQual
+    fun providePikafishEngine(
+        installer: com.xiangqi.app.engine.pikafish.PikafishInstaller,
+    ): Engine = com.xiangqi.app.engine.pikafish.PikafishEngine(installer)
+
+    /** [EngineProvider] 主入口。 */
+    @Provides
+    @Singleton
+    fun provideEngineProvider(impl: EngineProviderImpl): EngineProvider = impl
 }

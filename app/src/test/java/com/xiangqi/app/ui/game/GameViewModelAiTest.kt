@@ -14,6 +14,7 @@ import com.xiangqi.app.domain.rules.CheckmateDetector
 import com.xiangqi.app.domain.rules.MoveLegality
 import com.xiangqi.app.engine.Difficulty
 import com.xiangqi.app.engine.Engine
+import com.xiangqi.app.engine.EngineProvider
 import com.xiangqi.app.engine.EngineResult
 import com.xiangqi.app.engine.EngineType
 import com.xiangqi.app.engine.SearchInfo
@@ -82,7 +83,9 @@ class GameViewModelAiTest {
         val repo = GameRepository(gen, legality, checkmate)
         val holder = GameConfigHolder()
         holder.set(holderConfig)
-        return GameViewModel(repo, gen, legality, engine, holder) to holder
+        // 用 FakeEngine 包装一个固定 EngineProvider,让所有 type 都返回同一 Fake
+        val provider = EngineProvider { _ -> engine }
+        return GameViewModel(repo, gen, legality, provider, holder) to holder
     }
 
     @Test

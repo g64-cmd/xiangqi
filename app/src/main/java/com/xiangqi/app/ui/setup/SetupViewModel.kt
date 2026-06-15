@@ -3,6 +3,7 @@ package com.xiangqi.app.ui.setup
 import androidx.lifecycle.ViewModel
 import com.xiangqi.app.data.game.GameConfig
 import com.xiangqi.app.data.game.GameConfigHolder
+import com.xiangqi.app.engine.EngineType
 import com.xiangqi.app.ui.game.GameMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +42,10 @@ class SetupViewModel @Inject constructor(
         _ui.update { it.copy(difficulty = difficulty) }
     }
 
+    fun onEngineTypeChange(engineType: EngineType) {
+        _ui.update { it.copy(engineType = engineType) }
+    }
+
     /**
      * 把当前选择写入 [GameConfigHolder],然后触发 [onConfigured](通常是导航到 GameScreen)。
      */
@@ -53,6 +58,7 @@ class SetupViewModel @Inject constructor(
                 difficulty = s.difficulty,
                 orientation = if (s.mode == GameMode.HUMAN_VS_AI) s.humanSide
                 else com.xiangqi.app.domain.model.Side.RED,
+                engineType = s.engineType,
             )
         )
         onConfigured()
