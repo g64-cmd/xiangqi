@@ -4,6 +4,7 @@ import com.xiangqi.app.domain.fen.FenPosition
 import com.xiangqi.app.domain.model.Board
 import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Side
+import com.xiangqi.app.engine.AnalysisScore
 import com.xiangqi.app.engine.Difficulty
 import com.xiangqi.app.engine.Engine
 import com.xiangqi.app.engine.EngineResult
@@ -125,6 +126,31 @@ class PikafishEngine @Inject constructor(
         return s
     }
 
+    /**
+     * 局势评估覆盖实现:发送皮卡鱼独有的 `eval` 命令,拿 NNUE 静态评估。
+     * 瞬时返回(无搜索);不输出 mate,所以 [AnalysisScore.isMate] 永远 false。
+     *
+     * 失败(子进程异常 / parse 失败 / 超时)时返回 0 cp,避免调用方崩溃。
+     */
+    override suspend fun analyze(board: Board, sideToMove: Side): AnalysisScore =
+        withContext(Dispatchers.IO) {
+            val s = try {
+                ensureSession()
+            } catch (_: Throwable) {
+                return@withContext AnalysisScore(0f, false, null)
+            }
+            val fen = FenPosition(board, sideToMove).toFen()
+            try {
+                s.send("position fen $fen")
+                s.send("eval")
+                val line = s.waitFor("Final evaluation", timeoutMs = 2000L)
+                val parsed = line?.let { parseEvalLine(it) }
+                parsed ?: AnalysisScore(0f, false, null)
+            } catch (_: Throwable) {
+                AnalysisScore(0f, false, null)
+            }
+        }
+
     private fun closeSession() {
         session?.close()
         session = null
@@ -190,6 +216,40 @@ class PikafishEngine @Inject constructor(
                 pv = emptyList(),
                 nodes = nodes,
                 timeMs = timeMs,
+            )
+        }
+
+        /**
+         * 解析一行 `Final evaluation\s+([+-]?\d+\.\d+)\s+\((white|black) side\)...`。
+         *
+         * 皮卡鱼 eval 命令的输出格式参考 chinese-chess-fish-android:
+         * `Final evaluation       +0.23 (white side) [with scaled NNUE, ...]`
+         *
+         * 分数解读:float × 100 = centipawn;`(white side)` 时 white=红方,直接返回;
+         * `(black side)` 时取负(等价于"红方视角")。但 [parseEvalLine] 本身只返回
+         * sideToMove 视角(保持与 [analyze] 契约一致),不做 POV 规范化——上层 GameViewModel
+         * 负责根据 sideToMove 决定是否取负。
+         *
+         * 实际上 eval 输出永远从皮卡鱼内部 white 视角给出,与传给 `position fen` 的
+         * sideToMove 无关;这里通过 line 末尾 `(white|black) side` 标签判断 sign。
+         *
+         * 返回 null 表示无法解析。
+         */
+        internal fun parseEvalLine(line: String): AnalysisScore? {
+            val regex = Regex(
+                """Final evaluation\s+([+-]?\d+\.\d+)\s+\((white|black)\s+side\)""",
+            )
+            val m = regex.find(line) ?: return null
+            val floatScore = m.groupValues[1].toFloatOrNull() ?: return null
+            val sideLabel = m.groupValues[2]
+            val cp = floatScore * 100f
+            return AnalysisScore(
+                // eval 永远是 white(=红方)视角;black side 标签时翻转,使其变成 sideToMove 视角
+                // —— 但因为调用方会按 sideToMove 决定 POV,我们这里返回 white-POV cp。
+                // 即:white side -> 正;black side -> 负。
+                scoreCp = if (sideLabel == "white") cp else -cp,
+                isMate = false,
+                matePlies = null,
             )
         }
     }
