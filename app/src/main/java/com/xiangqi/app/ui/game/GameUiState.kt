@@ -33,6 +33,7 @@ import com.xiangqi.app.engine.SearchInfo
  * @property suggestedMove 引擎提示走法(Hint 按钮触发),null = 无提示。在棋盘上
  *   画半透明箭头,玩家 onTap / onUndo / onRestart 时清空。
  * @property canHint 是否可以触发提示(进行中且引擎空闲且轮到玩家方)。
+ * @property canOfferDraw 是否可以请求求和(同 canHint 条件)。
  */
 data class GameUiState(
     val board: Board,
@@ -50,4 +51,5 @@ data class GameUiState(
     val canInteract: Boolean = true,
     val suggestedMove: Move? = null,
     val canHint: Boolean = false,
+    val canOfferDraw: Boolean = false,
 )

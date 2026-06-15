@@ -7,6 +7,7 @@ import com.xiangqi.app.data.game.GameConfigHolder
 import com.xiangqi.app.data.game.GameRepository
 import com.xiangqi.app.data.game.GameState
 import com.xiangqi.app.domain.fen.FenParser
+import com.xiangqi.app.domain.model.DrawReason
 import com.xiangqi.app.domain.model.GameResult
 import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Position
@@ -21,6 +22,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -68,7 +70,12 @@ class GameViewModel @Inject constructor(
     private val _isEngineBusy = MutableStateFlow(false)
     private val _searchInfo = MutableStateFlow<SearchInfo?>(null)
     private val _resigned = MutableStateFlow<GameResult?>(null)
+    private val _drawn = MutableStateFlow<GameResult?>(null)
     private val _suggestedMove = MutableStateFlow<Move?>(null)
+
+    /** 短暂 UI 消息(典型:AI 拒绝求和的 toast)。extraBufferCapacity 防止背压丢消息。 */
+    private val _toast = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val toast = _toast
     private var aiJob: Job? = null
 
     val uiState: StateFlow<GameUiState> =
@@ -84,6 +91,8 @@ class GameViewModel @Inject constructor(
             state.copy(searchInfo = info)
         }.combine(_resigned) { state, resigned ->
             if (resigned != null) state.copy(result = resigned) else state
+        }.combine(_drawn) { state, drawn ->
+            if (drawn != null) state.copy(result = drawn) else state
         }.combine(_suggestedMove) { state, hint ->
             state.copy(suggestedMove = hint)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initialState())
@@ -103,8 +112,11 @@ class GameViewModel @Inject constructor(
     ): GameUiState {
         val interact = canInteract(gs, cfg, thinking)
         // result overlay:认输 / 求和让游戏"视为结束",所有派生门控都按终局处理
-        val effectiveResult: GameResult = _resigned.value ?: gs.result
+        val effectiveResult: GameResult = _drawn.value ?: _resigned.value ?: gs.result
         val canHintNow = !thinking &&
+            effectiveResult is GameResult.ONGOING &&
+            (cfg.mode == GameMode.HOT_SEAT || gs.sideToMove == cfg.humanSide)
+        val canOfferDrawNow = !thinking &&
             effectiveResult is GameResult.ONGOING &&
             (cfg.mode == GameMode.HOT_SEAT || gs.sideToMove == cfg.humanSide)
         return GameUiState(
@@ -123,6 +135,7 @@ class GameViewModel @Inject constructor(
             canInteract = interact,
             suggestedMove = _suggestedMove.value,
             canHint = canHintNow,
+            canOfferDraw = canOfferDrawNow,
         )
     }
 
@@ -230,6 +243,7 @@ class GameViewModel @Inject constructor(
         aiJob?.cancel()
         clearSelection()
         _resigned.value = null
+        _drawn.value = null
         _suggestedMove.value = null
         repo.restart()
     }
@@ -246,6 +260,36 @@ class GameViewModel @Inject constructor(
         if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) return
         launchEngine(s, Difficulty.HINT, EngineKind.HINT) { result ->
             _suggestedMove.value = result.bestMove
+        }
+    }
+
+    /**
+     * 玩家请求求和。
+     *
+     * - HOT_SEAT:对方就在旁边,直接 `repo.setDraw(AGREED)`。
+     * - HUMAN_VS_AI:引擎走 ELEMENTARY 难度浅搜一次,`|score| < DRAW_ACCEPT_CP`
+     *   视为均势接受求和(`_drawn = Draw(AGREED)`);否则发 `_toast` 提示拒绝。
+     *
+     * **Score POV**:engine.search 返回 sideToMove 视角,玩家方走完后 sideToMove
+     * 仍是玩家方(因为求和请求是玩家在己方回合发起,还没走子),所以 score 直接是
+     * 玩家视角,|score| < 30 即"对玩家而言均势"。
+     */
+    fun onDrawOffer() {
+        val s = repo.state.value
+        if (s.result !is GameResult.ONGOING) return
+        if (_isEngineBusy.value) return
+        val cfg = configHolder.config.value
+        if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) return
+        if (cfg.mode == GameMode.HOT_SEAT) {
+            repo.setDraw(DrawReason.AGREED)
+            return
+        }
+        launchEngine(s, Difficulty.ELEMENTARY, EngineKind.DRAW_EVAL) { r ->
+            if (kotlin.math.abs(r.score) < DRAW_ACCEPT_CP) {
+                _drawn.value = GameResult.Draw(DrawReason.AGREED)
+            } else {
+                _toast.tryEmit("对方拒绝了求和")
+            }
         }
     }
 
@@ -286,4 +330,11 @@ class GameViewModel @Inject constructor(
      * 入口共用一个序列化通道。
      */
     private enum class EngineKind { AI_MOVE, HINT, DRAW_EVAL, MANUAL_ANALYZE }
+
+    companion object {
+        /**
+         * AI 接受求和的分数阈值(centipawn)。|score| < 30 ≈ "对玩家而言均势"。
+         */
+        const val DRAW_ACCEPT_CP = 30
+    }
 }
