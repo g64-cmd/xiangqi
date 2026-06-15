@@ -1,11 +1,16 @@
 package com.xiangqi.app.di
 
 import com.xiangqi.app.data.game.GameRepository
+import com.xiangqi.app.domain.eval.Evaluation
 import com.xiangqi.app.domain.movegen.MoveGenerator
 import com.xiangqi.app.domain.movegen.MoveGeneratorImpl
 import com.xiangqi.app.domain.rules.CheckDetector
 import com.xiangqi.app.domain.rules.CheckmateDetector
 import com.xiangqi.app.domain.rules.MoveLegality
+import com.xiangqi.app.engine.Engine
+import com.xiangqi.app.engine.self.MoveOrdering
+import com.xiangqi.app.engine.self.SelfEngine
+import com.xiangqi.app.engine.self.TranspositionTable
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -55,4 +60,35 @@ object GameModule {
         legality: MoveLegality,
         checkmate: CheckmateDetector,
     ): GameRepository = GameRepository(gen, legality, checkmate)
+
+    @Provides
+    @Singleton
+    fun provideEvaluation(): Evaluation = Evaluation()
+
+    @Provides
+    @Singleton
+    fun provideMoveOrdering(
+        gen: MoveGenerator,
+        checkDetector: CheckDetector,
+    ): MoveOrdering = MoveOrdering(gen, checkDetector)
+
+    @Provides
+    @Singleton
+    fun provideTranspositionTable(): TranspositionTable = TranspositionTable(1 shl 18)
+
+    /**
+     * 把 [SelfEngine] 绑定为 [Engine] 接口。M5 接 PikafishEngine 时按 @Qualifier 切换。
+     * 标 @Singleton 以复用 256K 槽的 TranspositionTable。
+     */
+    @Provides
+    @Singleton
+    fun provideSelfEngine(
+        gen: MoveGenerator,
+        legality: MoveLegality,
+        evaluation: Evaluation,
+        checkDetector: CheckDetector,
+        checkmate: CheckmateDetector,
+        moveOrdering: MoveOrdering,
+        tt: TranspositionTable,
+    ): Engine = SelfEngine(gen, legality, evaluation, checkDetector, checkmate, moveOrdering, tt)
 }
