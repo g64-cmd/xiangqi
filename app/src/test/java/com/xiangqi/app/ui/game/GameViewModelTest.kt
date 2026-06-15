@@ -1,18 +1,28 @@
 package com.xiangqi.app.ui.game
 
 import com.google.common.truth.Truth.assertThat
+import com.xiangqi.app.data.game.GameConfig
+import com.xiangqi.app.data.game.GameConfigHolder
 import com.xiangqi.app.data.game.GameRepository
+import com.xiangqi.app.domain.model.Board
 import com.xiangqi.app.domain.model.Position
 import com.xiangqi.app.domain.model.Side
 import com.xiangqi.app.domain.movegen.MoveGeneratorImpl
 import com.xiangqi.app.domain.rules.CheckDetector
 import com.xiangqi.app.domain.rules.CheckmateDetector
 import com.xiangqi.app.domain.rules.MoveLegality
+import com.xiangqi.app.engine.Difficulty
+import com.xiangqi.app.engine.Engine
+import com.xiangqi.app.engine.EngineResult
+import com.xiangqi.app.engine.EngineType
+import com.xiangqi.app.engine.SearchInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -21,11 +31,11 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * [GameViewModel] 行为契约。
+ * [GameViewModel] 行为契约(HOT_SEAT 路径)。
  *
  * 由于 [GameRepository] / [com.xiangqi.app.domain.movegen.MoveGenerator] /
  * [com.xiangqi.app.domain.rules.MoveLegality] 都已分别有测试覆盖,这里只验证 ViewModel
- * 自身的状态投影 + 选择状态机的行为(没引入"领域正确性"重复验证)。
+ * 自身的状态投影 + 选择状态机的行为。AI 自动应招的契约见 [GameViewModelAiTest]。
  *
  * `uiState` 使用 `SharingStarted.WhileSubscribed`,所以测试里必须主动订阅才能让
  * combine 运行;否则只能拿到 `initialState()`。`viewModelScope` 默认绑定 Main 调度,
@@ -53,7 +63,10 @@ class GameViewModelTest {
         val legality = MoveLegality(gen, check)
         val checkmate = CheckmateDetector(gen, check, legality)
         val repo = GameRepository(gen, legality, checkmate)
-        return GameViewModel(repo, gen, legality)
+        val holder = GameConfigHolder()
+        // HOT_SEAT 模式 + FakeEngine,既有用例不受 AI 干扰
+        holder.set(GameConfig(mode = GameMode.HOT_SEAT))
+        return GameViewModel(repo, gen, legality, NoopEngine, holder)
     }
 
     /** 在 runTest 内订阅 uiState 并等待 viewModelScope 跑完一轮,返回当前值。 */
@@ -157,3 +170,18 @@ class GameViewModelTest {
         assertThat(s.lastMove).isNull()
     }
 }
+
+/**
+ * 不干活的 Engine:HOT_SEAT 模式下永远不会被调用,但 GameViewModel 构造时需要它。
+ * 若意外被调用,抛异常以暴露误用。
+ */
+private object NoopEngine : Engine {
+    override val type: EngineType = EngineType.SELF
+    override val info: StateFlow<SearchInfo?> = MutableStateFlow<SearchInfo?>(null).asStateFlow()
+    override suspend fun search(
+        board: Board,
+        sideToMove: Side,
+        difficulty: Difficulty,
+    ): EngineResult = error("NoopEngine should never be invoked in HOT_SEAT mode")
+}
+
