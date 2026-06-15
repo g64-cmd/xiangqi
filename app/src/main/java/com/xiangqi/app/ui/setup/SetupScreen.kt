@@ -1,0 +1,159 @@
+package com.xiangqi.app.ui.setup
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xiangqi.app.domain.model.Side
+import com.xiangqi.app.engine.Difficulty
+import com.xiangqi.app.ui.game.GameMode
+
+@Composable
+fun SetupScreen(
+    onStart: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: SetupViewModel = hiltViewModel(),
+) {
+    val state by viewModel.ui.collectAsStateWithLifecycle()
+    SetupScreenContent(
+        state = state,
+        onModeChange = viewModel::onModeChange,
+        onSideChange = viewModel::onSideChange,
+        onDifficultyChange = viewModel::onDifficultyChange,
+        onStart = { viewModel.onStart(onStart) },
+        modifier = modifier,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SetupScreenContent(
+    state: SetupUiState,
+    onModeChange: (GameMode) -> Unit,
+    onSideChange: (Side) -> Unit,
+    onDifficultyChange: (Difficulty) -> Unit,
+    onStart: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Scaffold(modifier = modifier.fillMaxSize()) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Text(
+                text = "中国象棋",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Column(
+                modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("模式", style = MaterialTheme.typography.titleMedium)
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    GameMode.entries.forEachIndexed { index, m ->
+                        SegmentedButton(
+                            selected = state.mode == m,
+                            onClick = { onModeChange(m) },
+                            shape = SegmentedButtonDefaults.itemShape(index, GameMode.entries.size),
+                        ) { Text(if (m == GameMode.HOT_SEAT) "双人本地" else "人机") }
+                    }
+                }
+            }
+
+            if (state.mode == GameMode.HUMAN_VS_AI) {
+                Column(
+                    modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("执棋方", style = MaterialTheme.typography.titleMedium)
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        Side.entries.forEachIndexed { index, s ->
+                            SegmentedButton(
+                                selected = state.humanSide == s,
+                                onClick = { onSideChange(s) },
+                                shape = SegmentedButtonDefaults.itemShape(index, Side.entries.size),
+                            ) { Text(if (s == Side.RED) "红方" else "黑方") }
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth().selectableGroup(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text("难度", style = MaterialTheme.typography.titleMedium)
+                    Difficulty.entries.forEach { d ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = state.difficulty == d,
+                                    role = Role.RadioButton,
+                                    onClick = { onDifficultyChange(d) },
+                                )
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            RadioButton(
+                                selected = state.difficulty == d,
+                                onClick = null,
+                            )
+                            Text(
+                                text = difficultyLabel(d),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = onStart,
+                modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth().height(56.dp),
+            ) { Text("开始对局", style = MaterialTheme.typography.titleMedium) }
+        }
+    }
+}
+
+private fun difficultyLabel(d: Difficulty): String = when (d) {
+    Difficulty.BEGINNER -> "初学(深度 1)"
+    Difficulty.ELEMENTARY -> "初级(深度 2)"
+    Difficulty.INTERMEDIATE -> "中级(深度 3)"
+    Difficulty.ADVANCED -> "高级(深度 4)"
+}
