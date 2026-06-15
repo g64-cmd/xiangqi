@@ -6,6 +6,7 @@ import com.xiangqi.app.domain.fen.FenParser
 import com.xiangqi.app.domain.model.Position
 import com.xiangqi.app.domain.model.Side
 import com.xiangqi.app.domain.movegen.MoveGeneratorImpl
+import com.xiangqi.app.domain.rules.CheckDetector
 import com.xiangqi.app.domain.rules.MoveLegality
 import com.xiangqi.app.engine.Score
 import org.junit.Test
@@ -22,8 +23,11 @@ class SearchMateTest {
 
     private val gen = MoveGeneratorImpl()
     private val legality = MoveLegality(gen)
+    private val checkDetector = CheckDetector(gen)
     private val eval = Evaluation()
-    private val search = Search(gen, legality, eval)
+    private val ordering = MoveOrdering(gen, checkDetector)
+    private val tt = TranspositionTable(1 shl 18)
+    private val search = Search(gen, legality, eval, checkDetector, ordering, tt)
 
     @Test
     fun `initial position returns non-null bestMove with positive nodes`() {
