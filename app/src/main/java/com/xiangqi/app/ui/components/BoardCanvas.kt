@@ -1,0 +1,224 @@
+package com.xiangqi.app.ui.components
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
+import com.xiangqi.app.domain.model.Board
+import com.xiangqi.app.domain.model.Move
+import com.xiangqi.app.domain.model.Piece
+import com.xiangqi.app.domain.model.Position
+import com.xiangqi.app.domain.model.Side
+import com.xiangqi.app.ui.theme.InkBlack
+import com.xiangqi.app.ui.theme.InkGray
+import com.xiangqi.app.ui.theme.WoodLight
+import com.xiangqi.app.ui.theme.WoodMid
+
+/**
+ * 棋盘上一次动画状态。null 表示当前不在动画。
+ *
+ * @property movingPiece 正在移动的棋子。
+ * @property fromView 起点视图坐标(像素)。
+ * @property toView 终点视图坐标(像素)。
+ * @property progress 0..1,动画进度。
+ */
+data class BoardAnimation(
+    val movingPiece: Piece,
+    val fromView: Offset,
+    val toView: Offset,
+    val progress: Float,
+)
+
+/**
+ * 棋盘画布。负责绘制所有视觉元素:背景 / 外框 / 网格 / 河界 / 九宫 / 位置标记 /
+ * 上一步高亮 / 选中高亮 / 合法目标点 / 棋子 / 动画棋子覆盖。
+ *
+ * 不持任何状态;所有渲染输入都通过参数传入。点击通过 [onTap] 回调抛出域坐标。
+ *
+ * @param orientation 哪方在屏幕底部,M3 固定 [Side.RED];M4 setup screen 可改。
+ * @param animation 当前动画状态,null = 无动画。
+ */
+@Composable
+@Suppress("UNUSED_PARAMETER")
+fun BoardCanvas(
+    board: Board,
+    orientation: Side,
+    selected: Position?,
+    legalTargets: Set<Position>,
+    lastMove: Move?,
+    onTap: (Position) -> Unit,
+    animation: BoardAnimation? = null,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier.fillMaxSize()) {
+        val layout = computeLayout(size.width, size.height)
+        drawBackground()
+        drawOuterBorder(layout)
+        drawGrid(layout)
+        val textSizePx = layout.cell * 0.45f
+        drawRiverText(layout, textSizePx)
+        drawPalaces(layout, orientation)
+        drawPositionMarkers(layout, orientation)
+        // 后续 commit 添加:drawLastMoveHighlight / drawSelectionHighlight /
+        // drawLegalTargets / drawPieces / drawAnimationOverlay / 点击处理
+    }
+}
+
+/** 画布布局:cell 单元边长 + 外边距,使 9×10 交叉点居中。 */
+internal data class BoardLayout(
+    val cell: Float,
+    val marginX: Float,
+    val marginY: Float,
+    val width: Float,
+    val height: Float,
+) {
+    /** 视图坐标 (viewCol, viewRow) 的交叉点像素中心。 */
+    fun centerOf(viewCol: Int, viewRow: Int): Offset =
+        Offset(marginX + viewCol * cell, marginY + viewRow * cell)
+}
+
+/** 计算使 8 列宽 × 9 行高都能完整放下的布局,余量居中。 */
+internal fun computeLayout(widthPx: Float, heightPx: Float): BoardLayout {
+    val cell = minOf(widthPx / 9f, heightPx / 10f)
+    val marginX = (widthPx - cell * 8f) / 2f
+    val marginY = (heightPx - cell * 9f) / 2f
+    return BoardLayout(cell, marginX, marginY, widthPx, heightPx)
+}
+
+// ---- 静态绘制层(从背到前) ----
+
+private fun DrawScope.drawBackground() {
+    drawRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(WoodLight, WoodMid),
+            startY = 0f,
+            endY = size.height,
+        ),
+        size = size,
+    )
+}
+
+private fun DrawScope.drawOuterBorder(layout: BoardLayout) {
+    drawRect(
+        color = InkBlack,
+        topLeft = Offset(layout.marginX, layout.marginY),
+        size = Size(layout.width - 2 * layout.marginX, layout.height - 2 * layout.marginY),
+        style = Stroke(width = layout.cell * 0.06f),
+    )
+}
+
+private fun DrawScope.drawGrid(layout: BoardLayout) {
+    val strokeWidth = layout.cell * 0.015f
+    // 10 条横线(完整宽度)
+    for (viewRow in 0..9) {
+        val y = layout.marginY + viewRow * layout.cell
+        drawLine(
+            color = InkBlack,
+            start = Offset(layout.marginX, y),
+            end = Offset(layout.width - layout.marginX, y),
+            strokeWidth = strokeWidth,
+        )
+    }
+    // 9 条竖线:外侧 2 条(col 0/8)完整,中间 7 条(col 1..7)在河界处断开
+    for (viewCol in 0..8) {
+        val x = layout.marginX + viewCol * layout.cell
+        if (viewCol == 0 || viewCol == 8) {
+            drawLine(
+                color = InkBlack,
+                start = Offset(x, layout.marginY),
+                end = Offset(x, layout.height - layout.marginY),
+                strokeWidth = strokeWidth,
+            )
+        } else {
+            val yTop1 = layout.marginY + 4 * layout.cell
+            val yBot0 = layout.marginY + 5 * layout.cell
+            drawLine(InkBlack, Offset(x, layout.marginY), Offset(x, yTop1), strokeWidth)
+            drawLine(InkBlack, Offset(x, yBot0), Offset(x, layout.marginY + 9 * layout.cell), strokeWidth)
+        }
+    }
+}
+
+private fun DrawScope.drawRiverText(layout: BoardLayout, textSizePx: Float) {
+    val y = layout.marginY + 4.5f * layout.cell
+    val paint = android.graphics.Paint().apply {
+        isAntiAlias = true
+        color = InkGray.toArgb()
+        textAlign = android.graphics.Paint.Align.CENTER
+        textSize = textSizePx
+        typeface = android.graphics.Typeface.create(
+            android.graphics.Typeface.SERIF,
+            android.graphics.Typeface.BOLD,
+        )
+    }
+    drawContext.canvas.nativeCanvas.apply {
+        drawText("楚 河", layout.marginX + 2f * layout.cell, y + textSizePx * 0.35f, paint)
+        drawText("漢 界", layout.marginX + 6f * layout.cell, y + textSizePx * 0.35f, paint)
+    }
+}
+
+private fun DrawScope.drawPalaces(layout: BoardLayout, orientation: Side) {
+    // 红宫:model col 3..5、row 0..2;黑宫:model col 3..5、row 7..9。
+    for (side in listOf(Side.RED, Side.BLACK)) {
+        val modelRowTop = if (side == Side.RED) 0 else 7
+        val modelRowBot = modelRowTop + 2
+        val (vcL, vrT) = modelToView(Position(3, modelRowTop), orientation)
+        val (vcR, vrB) = modelToView(Position(5, modelRowBot), orientation)
+        val topLeft = layout.centerOf(vcL, vrT)
+        val bottomRight = layout.centerOf(vcR, vrB)
+        val topRight = layout.centerOf(vcR, vrT)
+        val bottomLeft = layout.centerOf(vcL, vrB)
+        val w = layout.cell * 0.015f
+        drawLine(InkBlack, topLeft, bottomRight, w)
+        drawLine(InkBlack, topRight, bottomLeft, w)
+    }
+}
+
+private fun DrawScope.drawPositionMarkers(layout: BoardLayout, orientation: Side) {
+    // 炮位 col 1/4、row 2/7;兵位 col 0/2/4/6/8、row 3/6。
+    val cannonPositions = listOf(
+        Position(1, 2), Position(4, 2),
+        Position(1, 7), Position(4, 7),
+    )
+    val pawnPositions = mutableListOf<Position>()
+    for (c in listOf(0, 2, 4, 6, 8)) {
+        pawnPositions += Position(c, 3)
+        pawnPositions += Position(c, 6)
+    }
+    for (p in cannonPositions + pawnPositions) {
+        drawCrosshair(layout, p, orientation)
+    }
+}
+
+/** 在交叉点四角画 4 段 L 形描边(传统炮位/兵位标记)。 */
+private fun DrawScope.drawCrosshair(
+    layout: BoardLayout,
+    modelPos: Position,
+    orientation: Side,
+) {
+    val (vc, vr) = modelToView(modelPos, orientation)
+    val c = layout.centerOf(vc, vr)
+    val arm = layout.cell * 0.10f
+    val gap = layout.cell * 0.06f
+    val w = layout.cell * 0.02f
+    val color = InkBlack
+    val corners = listOf(-1 to -1, 1 to -1, -1 to 1, 1 to 1)
+    for ((dx, dy) in corners) {
+        // 边界:col 0 不画左侧、col 8 不画右侧
+        if (modelPos.col == 0 && dx == -1) continue
+        if (modelPos.col == Position.COL_MAX && dx == 1) continue
+        val cornerX = c.x + dx * gap
+        val cornerY = c.y + dy * gap
+        drawLine(color, Offset(cornerX, cornerY), Offset(cornerX + dx * arm, cornerY), w)
+        drawLine(color, Offset(cornerX, cornerY), Offset(cornerX, cornerY + dy * arm), w)
+    }
+}
+
+/** 后续 commit 在此追加:drawLastMoveHighlight / drawSelectionHighlight / drawLegalTargets / drawPieces / drawAnimationOverlay */
