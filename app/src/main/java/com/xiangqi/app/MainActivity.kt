@@ -6,7 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
-import com.xiangqi.app.ui.game.GameScreen
+import com.xiangqi.app.ui.nav.XiangqiNavHost
 import com.xiangqi.app.ui.theme.XiangqiTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -17,7 +17,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             XiangqiTheme {
-                GameScreen(modifier = Modifier.fillMaxSize())
+                XiangqiNavHost(modifier = Modifier.fillMaxSize())
             }
         }
     }
