@@ -12,12 +12,6 @@ import com.xiangqi.app.engine.Score
 /**
  * Negamax + Alpha-Beta + TranspositionTable 搜索器。
  *
- * **升级历程**:
- * - ✅ commit 6:纯 Negamax
- * - ✅ commit 7:Alpha-Beta 剪枝 + MoveOrdering
- * - ✅ commit 9:接入 TranspositionTable(本 commit)
- * - ⏳ commit 10:叶节点用 QuiescenceSearch
- *
  * **视角约定**:所有分数都是"当前走子方视角",正数利于走子方。
  *
  * **TT 用法**:
@@ -25,6 +19,9 @@ import com.xiangqi.app.engine.Score
  * - 走法排序把 tt.bestMove 作为 ttMove 优先
  * - 退出前根据 fail-high/low/exact 写回 TT
  * - 杀棋分按 [TranspositionTable.storeMateScore] / [retrieveMateScore] 做 ply 视角转换
+ *
+ * **超时**:每 [cancelCheckInterval] 节点调一次 [checkCancel],
+ * 由 [SelfEngine] 在协程上下文注入(Job.isActive 检测 + deadline 检测)。
  */
 class Search(
     private val gen: MoveGenerator,
