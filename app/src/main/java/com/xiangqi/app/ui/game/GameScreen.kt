@@ -21,7 +21,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Position
-import com.xiangqi.app.domain.model.Side
 import com.xiangqi.app.ui.components.BoardAnimation
 import com.xiangqi.app.ui.components.BoardCanvas
 import com.xiangqi.app.ui.components.BoardLayout
@@ -30,22 +29,20 @@ import com.xiangqi.app.ui.components.GameTopBar
 import com.xiangqi.app.ui.components.computeLayout
 import com.xiangqi.app.ui.components.modelToView
 
-/**
- * GameScreen:整个 M3 入口。组装 [GameTopBar] + [BoardArea] + [GameBottomBar]。
- *
- * 状态全部来自 [GameViewModel] 的 [GameViewModel.uiState],本 Composable 自身无状态。
- */
 @Composable
 fun GameScreen(
-    viewModel: GameViewModel = hiltViewModel(),
+    onExit: () -> Unit,
     modifier: Modifier = Modifier,
+    viewModel: GameViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     GameScreenContent(
         state = state,
         onTap = viewModel::onTap,
         onUndo = viewModel::onUndo,
+        onResign = viewModel::onResign,
         onRestart = viewModel::onRestart,
+        onExit = onExit,
         modifier = modifier,
     )
 }
@@ -55,19 +52,29 @@ private fun GameScreenContent(
     state: GameUiState,
     onTap: (Position) -> Unit,
     onUndo: () -> Unit,
+    onResign: () -> Unit,
     onRestart: () -> Unit,
+    onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
-            GameTopBar(sideToMove = state.sideToMove, result = state.result)
+            GameTopBar(
+                sideToMove = state.sideToMove,
+                result = state.result,
+                isAiThinking = state.isAiThinking,
+                searchInfo = state.searchInfo,
+                onExit = onExit,
+            )
         },
         bottomBar = {
             GameBottomBar(
                 canUndo = state.canUndo,
                 result = state.result,
+                isAiThinking = state.isAiThinking,
                 onUndo = onUndo,
+                onResign = onResign,
                 onRestart = onRestart,
             )
         },
@@ -80,10 +87,6 @@ private fun GameScreenContent(
     }
 }
 
-/**
- * 棋盘区域。持有简单平移动画状态([animateFloatAsState]),
- * 把 [BoardAnimation] 喂给 [BoardCanvas]。
- */
 @Composable
 private fun BoardArea(
     state: GameUiState,
@@ -94,9 +97,6 @@ private fun BoardArea(
     var animatedMove by remember { mutableStateOf<Move?>(null) }
     var animProgressTarget by remember { mutableFloatStateOf(1f) }
 
-    // 新走子时(且与上次动画不同)启动一次动画。undo / restart 不会改 lastMove 到
-    // 与 animatedMove 不同的值之外的情况—— restart 会把 lastMove 设为 null,
-    // 此时 LaunchedEffect 触发但 branch 走不进去。
     LaunchedEffect(lastMove) {
         if (lastMove != null && lastMove != animatedMove) {
             animatedMove = lastMove
@@ -125,7 +125,6 @@ private fun BoardArea(
     }
 }
 
-/** Constraints → BoardLayout:把 px 维度的 constraints 转成 BoardLayout。 */
 private fun computeLayoutFromConstraints(
     constraints: Constraints,
     @Suppress("UNUSED_PARAMETER") density: Float,
@@ -135,7 +134,6 @@ private fun computeLayoutFromConstraints(
     return computeLayout(widthPx, heightPx)
 }
 
-/** 仅当动画进行中(progress < 1 且 lastMove 非空)时返回 [BoardAnimation]。 */
 private fun computeAnimation(
     state: GameUiState,
     lastMove: Move?,

@@ -14,16 +14,19 @@ import androidx.compose.ui.unit.dp
 import com.xiangqi.app.domain.model.GameResult
 
 /**
- * 底部栏:悔棋(条件禁用)+ 重开。
+ * 底部栏:悔棋(条件禁用)+ 认输(进行中且非 AI 思考)+ 重开。
  */
 @Composable
 fun GameBottomBar(
     canUndo: Boolean,
     result: GameResult,
+    isAiThinking: Boolean,
     onUndo: () -> Unit,
+    onResign: () -> Unit,
     onRestart: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val ongoing = result is GameResult.ONGOING
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -32,10 +35,17 @@ fun GameBottomBar(
     ) {
         OutlinedButton(
             onClick = onUndo,
-            enabled = canUndo && result is GameResult.ONGOING,
+            enabled = canUndo && ongoing && !isAiThinking,
             modifier = Modifier.weight(1f),
         ) {
             Text("悔棋")
+        }
+        OutlinedButton(
+            onClick = onResign,
+            enabled = ongoing && !isAiThinking,
+            modifier = Modifier.weight(1f),
+        ) {
+            Text("认输")
         }
         Button(
             onClick = onRestart,
