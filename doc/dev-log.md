@@ -163,4 +163,70 @@
 
 ---
 
+## 2026-06-16 — M3 棋盘 UI 完成(分支 feature/M3-board-ui)
+
+**改动**
+- `di/GameModule.kt`:第一个 Hilt `@Module`,提供 MoveGenerator / CheckDetector /
+  MoveLegality / CheckmateDetector / GameRepository 五个 Singleton。显式传全部依赖,
+  避免 Hilt 走带默认参数的构造器(`MoveLegality(gen)` 默认会 new 一个新 `CheckDetector`,
+  与 Singleton 不一致)。
+- `data/model/HistoryEntry.kt` + `data/game/GameRepository.kt`:GameState 持有者,
+  StateFlow<GameState> 单一真相源。applyMove / undo / restart 全同步。
+  **关键修正**:`Board.applyMove` 是纯搬子不做几何校验,Repository 必须先用
+  `moveGenerator.movesFrom` 验证 from 处棋子能走到 to,再交给 MoveLegality。
+- `ui/game/GameUiState.kt` + `GameViewModel.kt`:`combine(repo.state, _selected,
+  _legalTargets).stateIn(...)`。onTap 选择状态机(6 分支),onUndo/onRestart 全同步。
+  orientation 参数化(RED 固定,M4 setup screen 可改)。
+- `ui/components/BoardGeometry.kt`:纯 view↔model 坐标转换,无 Compose 依赖,
+  JVM 可测。RED 翻 row、BLACK 翻 col(180° 旋转)。两套映射都是对合。
+- `ui/components/PiecePainter.kt`:`DrawScope` 扩展,画一颗棋子(木盘 + 朱红/墨黑
+  环 + 繁体字)。RED 用文体(帥仕相傌車炮兵),BLACK 用白体(將士象馬車砲卒)。
+- `ui/components/BoardCanvas.kt`:单 `Canvas` 内 11 层绘制
+  (背景渐变 → 外框 → 网格(中间列河界处断开)→ 楚河漢界文字 → 双方九宫 ×
+  → 炮位/兵位 L 形十字标 → 上一步高亮 → 选中高亮 → 合法目标点 → 棋子 →
+  动画覆盖)。BoxWithConstraints 在 Composable 层算 layout 一次,点击映射走
+  `detectTapGestures` + `(offset - margin) / cell` 的 `toInt()` 自然半格容差。
+- `ui/components/GameTopBar.kt` + `GameBottomBar.kt`:无状态 Composable,
+  红黑走子提示 / 悔棋(条件禁用)/ 重开。
+- `ui/game/GameScreen.kt`:`Scaffold` + `hiltViewModel` + `BoardArea`(动画 owner)。
+  `LaunchedEffect(lastMove)` + `animateFloatAsState(tween(200ms))`,新走子触发 200ms
+  平移;undo/restart 不触发动画。
+- `MainActivity.kt`:删 PlaceholderScreen,直接渲染 GameScreen。
+- `androidTest/.../BoardCanvasTest.kt`:Compose UI 测试,`@Ignore` 给 CI 跳。
+
+**关键决策**
+- **坐标映射的"对合"性质**:RED 翻 row、BLACK 翻 col,使得 `viewToModel ∘ modelToView
+  = identity`。BoardGeometryTest 对全 90 格 round-trip 自检。
+- **BoardCanvas 单 Canvas 11 层**:每层一个私有 helper(`drawBackground` /
+  `drawGrid` / ...),`Canvas { }` 主体可读。
+- **动画 owner 在 BoardArea 而非 ViewModel**:`animateFloatAsState` 必须在 composition 里,
+  ViewModel 只暴露 lastMove,UI 自己 drive 动画进度。
+- **GameViewModelTest 用 `Dispatchers.setMain(StandardTestDispatcher)`**:
+  viewModelScope 默认绑 Main,runTest 必须把 Main 替换为 testDispatcher,否则
+  `WhileSubscribed` 不会启动 combine。`snapshot()` helper launch collector +
+  `advanceUntilIdle()` 拿当前值。
+- **`@Suppress("UNUSED_PARAMETER")` 临时标记**:BoardCanvas 前 3 个 commit(commit 9-11)
+  的 board/selected/etc 参数未用到,加 suppress 直到 commit 12 全部接通才移除。
+
+**验证**
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` ✅
+  - `data/game/`:GameRepositoryTest(8)
+  - `ui/game/`:GameViewModelTest(8)
+  - `ui/components/`:BoardGeometryTest(8)
+  - 加 M0-M2 既有测试,共 100+ 单测全绿
+- 真机冒烟(用户在合并 PR 后做):
+  - 红方在底、32 颗起始棋子就位
+  - 点红子 → 出现合法目标点(Cinnabar 实心圆)
+  - 点目标 → 200ms 平移动画 → 轮次翻为"黑方走"
+  - 点悔棋 → 上一步回退(无动画)
+  - 点重开 → 棋盘回初始 FEN
+
+**备注**
+- M3 = UI + 双人手动走(无引擎);M4 接 SelfEngine 完成完整人机循环
+- 动画期间跳过 `lastMove.from` 的常规绘制(避免双绘)
+- BoardCanvasTest 标 `@Ignore`,真机/模拟器跑 `connectedDebugAndroidTest`
+- 后续 M6 优化:`Paint` 实例每帧 alloc,可 hoist 到顶层 `remember`
+
+---
+
 <!-- 后续记录在此行上方,保持倒序 -->
