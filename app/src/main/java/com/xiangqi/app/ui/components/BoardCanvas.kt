@@ -19,6 +19,7 @@ import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Piece
 import com.xiangqi.app.domain.model.Position
 import com.xiangqi.app.domain.model.Side
+import com.xiangqi.app.ui.theme.CinnabarLight
 import com.xiangqi.app.ui.theme.InkBlack
 import com.xiangqi.app.ui.theme.InkGray
 import com.xiangqi.app.ui.theme.WoodLight
@@ -49,7 +50,6 @@ data class BoardAnimation(
  * @param animation 当前动画状态,null = 无动画。
  */
 @Composable
-@Suppress("UNUSED_PARAMETER")
 fun BoardCanvas(
     board: Board,
     orientation: Side,
@@ -84,8 +84,9 @@ fun BoardCanvas(
             drawRiverText(layout, textSizePx)
             drawPalaces(layout, orientation)
             drawPositionMarkers(layout, orientation)
-            // 后续 commit 添加:drawLastMoveHighlight / drawSelectionHighlight /
-            // drawLegalTargets / drawPieces / drawAnimationOverlay
+            drawLastMoveHighlight(layout, lastMove, orientation)
+            drawPieces(layout, board, orientation, lastMove, animation)
+            // 后续 commit 添加:drawSelectionHighlight / drawLegalTargets / drawAnimationOverlay
         }
     }
 }
@@ -239,4 +240,45 @@ private fun DrawScope.drawCrosshair(
     }
 }
 
-/** 后续 commit 在此追加:drawLastMoveHighlight / drawSelectionHighlight / drawLegalTargets / drawPieces / drawAnimationOverlay */
+/** 后续 commit 在此追加:drawSelectionHighlight / drawLegalTargets / drawAnimationOverlay */
+
+private fun DrawScope.drawLastMoveHighlight(
+    layout: BoardLayout,
+    lastMove: Move?,
+    orientation: Side,
+) {
+    if (lastMove == null) return
+    val highlight = CinnabarLight.copy(alpha = 0.25f)
+    val rectSize = layout.cell * 0.7f
+    for (p in listOf(lastMove.from, lastMove.to)) {
+        val (vc, vr) = modelToView(p, orientation)
+        val c = layout.centerOf(vc, vr)
+        drawRect(
+            color = highlight,
+            topLeft = Offset(c.x - rectSize / 2, c.y - rectSize / 2),
+            size = Size(rectSize, rectSize),
+        )
+    }
+}
+
+private fun DrawScope.drawPieces(
+    layout: BoardLayout,
+    board: Board,
+    orientation: Side,
+    lastMove: Move?,
+    animation: BoardAnimation?,
+) {
+    val radius = layout.cell * 0.42f
+    val fontSizePx = layout.cell * 0.5f
+    for (row in 0..Position.ROW_MAX) {
+        for (col in 0..Position.COL_MAX) {
+            val piece = board[col, row] ?: continue
+            val pos = Position(col, row)
+            // 动画期间跳过 lastMove.from(由 drawAnimationOverlay 单独画)
+            if (animation != null && lastMove != null && pos == lastMove.from) continue
+            val (vc, vr) = modelToView(pos, orientation)
+            val center = layout.centerOf(vc, vr)
+            with(PiecePainter) { drawPiece(center, radius, piece, fontSizePx) }
+        }
+    }
+}
