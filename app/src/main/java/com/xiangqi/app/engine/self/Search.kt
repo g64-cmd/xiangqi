@@ -10,23 +10,21 @@ import com.xiangqi.app.domain.rules.MoveLegality
 import com.xiangqi.app.engine.Score
 
 /**
- * Negamax + Alpha-Beta 搜索器。
+ * Negamax + Alpha-Beta + TranspositionTable 搜索器。
  *
- * **升级历程**(本 commit 已完成第 2 阶段):
+ * **升级历程**:
  * - ✅ commit 6:纯 Negamax
- * - ✅ commit 7:Alpha-Beta 剪枝 + MoveOrdering(MVV-LVA + TT move + check bonus)
- * - ⏳ commit 9:接入 TranspositionTable(本 commit 已预留 [tt] 参数,暂不用)
+ * - ✅ commit 7:Alpha-Beta 剪枝 + MoveOrdering
+ * - ✅ commit 9:接入 TranspositionTable(本 commit)
  * - ⏳ commit 10:叶节点用 QuiescenceSearch
  *
  * **视角约定**:所有分数都是"当前走子方视角",正数利于走子方。
- * 子节点分数取负后回传,实现 Negamax。
  *
- * **终局判定**:`hasAnyLegalMove == false` 时:
- * - 被将 = 将死
- * - 未被将 = 困毙(中国象棋判负)
- * 二者对当前走子方均为输,返回 `-mateScore(ply)`。
- *
- * **超时**:本版本暂不做(由 SelfEngine 在 commit 11 串接协程取消 + deadline)。
+ * **TT 用法**:
+ * - 入口先查 TT:`get(key)`,若 depth >= 当前且 flag 兼容则直接用 score
+ * - 走法排序把 tt.bestMove 作为 ttMove 优先
+ * - 退出前根据 fail-high/low/exact 写回 TT
+ * - 杀棋分按 [TranspositionTable.storeMateScore] / [retrieveMateScore] 做 ply 视角转换
  */
 class Search(
     private val gen: MoveGenerator,
@@ -34,14 +32,19 @@ class Search(
     private val evaluation: Evaluation,
     private val checkDetector: CheckDetector,
     private val moveOrdering: MoveOrdering,
-    @Suppress("UNUSED_PARAMETER") tt: TranspositionTable,
+    private val tt: TranspositionTable,
 ) {
 
     /** 搜索期间累计访问的节点数(含叶节点)。测试可重置。 */
     var nodes: Long = 0
         internal set
 
-    /** 在根节点搜索 [maxDepth] 层,返回最佳走法 + 当前走子方视角分数。 */
+    /**
+     * 在根节点搜索 [maxDepth] 层,返回最佳走法 + 当前走子方视角分数。
+     *
+     * 调用方负责在合适时机 [TranspositionTable.clear](例如新一次完整 search 前)。
+     * 迭代加深期间不清 TT,以便下一深度复用上一深度的结果。
+     */
     fun searchRoot(board: Board, sideToMove: Side, maxDepth: Int): Pair<Move?, Int> {
         nodes = 0
         var alpha = Int.MIN_VALUE + 1
@@ -50,15 +53,21 @@ class Search(
         val moves = legality.legalMoves(board, gen.movesFor(board, sideToMove))
         if (moves.isEmpty()) return null to terminalScore(sideToMove, ply = 0)
 
-        val ordered = moveOrdering.sort(board, moves, sideToMove, ttMove = null)
+        val key = tt.hash(board, sideToMove)
+        val ttMove = tt.get(key)?.bestMove
+        val ordered = moveOrdering.sort(board, moves, sideToMove, ttMove)
+        var flag = TranspositionTable.Flag.UPPER_BOUND
         for (mv in ordered) {
             val after = board.applyMove(mv)
             val score = -negamax(after, sideToMove.opponent, maxDepth - 1, -beta, -alpha, ply = 1)
             if (score > alpha) {
                 alpha = score
                 bestMove = mv
+                flag = TranspositionTable.Flag.EXACT
             }
         }
+        // 根节点的 TT 写入(供下次迭代加深复用)
+        tt.put(key, maxDepth, flag, TranspositionTable.storeMateScore(alpha, 0), bestMove)
         return bestMove to alpha
     }
 
@@ -73,18 +82,47 @@ class Search(
     ): Int {
         nodes++
         var localAlpha = alpha
+        val key = tt.hash(board, sideToMove)
+
+        // ---- TT probe ----
+        val entry = tt.get(key)
+        val ttMove = entry?.bestMove
+        if (entry != null && entry.depth >= depth) {
+            val stored = TranspositionTable.retrieveMateScore(entry.score, ply)
+            when (entry.flag) {
+                TranspositionTable.Flag.EXACT -> return stored
+                TranspositionTable.Flag.LOWER_BOUND -> if (stored >= beta) return stored
+                TranspositionTable.Flag.UPPER_BOUND -> if (stored <= alpha) return stored
+            }
+        }
+
         val moves = legality.legalMoves(board, gen.movesFor(board, sideToMove))
         if (moves.isEmpty()) return terminalScore(sideToMove, ply)
         if (depth <= 0) return evaluation.evaluate(board, sideToMove)
 
-        val ordered = moveOrdering.sort(board, moves, sideToMove, ttMove = null)
+        val ordered = moveOrdering.sort(board, moves, sideToMove, ttMove)
+        var bestMove: Move? = null
+        var bestScore = Int.MIN_VALUE
+        var flag = TranspositionTable.Flag.UPPER_BOUND
         for (mv in ordered) {
             val after = board.applyMove(mv)
             val score = -negamax(after, sideToMove.opponent, depth - 1, -beta, -localAlpha, ply + 1)
-            if (score >= beta) return beta   // beta cutoff
-            if (score > localAlpha) localAlpha = score
+            if (score > bestScore) {
+                bestScore = score
+                bestMove = mv
+            }
+            if (score >= beta) {
+                flag = TranspositionTable.Flag.LOWER_BOUND
+                tt.put(key, depth, flag, TranspositionTable.storeMateScore(score, ply), bestMove)
+                return score   // beta cutoff
+            }
+            if (score > localAlpha) {
+                localAlpha = score
+                flag = TranspositionTable.Flag.EXACT
+            }
         }
-        return localAlpha
+        tt.put(key, depth, flag, TranspositionTable.storeMateScore(bestScore, ply), bestMove)
+        return bestScore
     }
 
     /** 当前走子方无合法走法时的分数:被将/困毙都判输。 */
