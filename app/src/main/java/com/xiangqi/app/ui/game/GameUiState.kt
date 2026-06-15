@@ -34,6 +34,10 @@ import com.xiangqi.app.engine.SearchInfo
  *   画半透明箭头,玩家 onTap / onUndo / onRestart 时清空。
  * @property canHint 是否可以触发提示(进行中且引擎空闲且轮到玩家方)。
  * @property canOfferDraw 是否可以请求求和(同 canHint 条件)。
+ * @property currentScore 当前局面评估(红方视角 centipawn);走子后自动更新。
+ *   null 表示尚未评估或评估失败。展示在 TopBar 副标题。
+ * @property evalHistory 整局评估序列(红方视角 cp),索引对齐 history。用于曲线图。
+ * @property canAnalyze 是否可手动触发分析(进行中、引擎空闲)。M7/9 commit 用。
  */
 data class GameUiState(
     val board: Board,
@@ -52,4 +56,7 @@ data class GameUiState(
     val suggestedMove: Move? = null,
     val canHint: Boolean = false,
     val canOfferDraw: Boolean = false,
+    val currentScore: Float? = null,
+    val evalHistory: List<Float> = emptyList(),
+    val canAnalyze: Boolean = false,
 )

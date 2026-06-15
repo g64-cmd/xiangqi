@@ -72,11 +72,15 @@ class GameViewModel @Inject constructor(
     private val _resigned = MutableStateFlow<GameResult?>(null)
     private val _drawn = MutableStateFlow<GameResult?>(null)
     private val _suggestedMove = MutableStateFlow<Move?>(null)
+    private val _evalHistory = MutableStateFlow<List<Float>>(emptyList())
+    private val _currentScore = MutableStateFlow<Float?>(null)
 
     /** 短暂 UI 消息(典型:AI 拒绝求和的 toast)。extraBufferCapacity 防止背压丢消息。 */
     private val _toast = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val toast = _toast
     private var aiJob: Job? = null
+    /** 上次观察到 history 长度,用于检测新走子触发自动 eval。 */
+    private var lastSeenHistorySize = 0
 
     val uiState: StateFlow<GameUiState> =
         combine(
@@ -95,11 +99,18 @@ class GameViewModel @Inject constructor(
             if (drawn != null) state.copy(result = drawn) else state
         }.combine(_suggestedMove) { state, hint ->
             state.copy(suggestedMove = hint)
+        }.combine(_evalHistory) { state, history ->
+            state.copy(evalHistory = history)
+        }.combine(_currentScore) { state, score ->
+            state.copy(currentScore = score)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initialState())
 
     init {
         viewModelScope.launch {
-            repo.state.collect { s -> maybeLaunchAi(s) }
+            repo.state.collect { s ->
+                maybeLaunchAi(s)
+                maybeAutoEval(s)
+            }
         }
     }
 
@@ -119,6 +130,7 @@ class GameViewModel @Inject constructor(
         val canOfferDrawNow = !thinking &&
             effectiveResult is GameResult.ONGOING &&
             (cfg.mode == GameMode.HOT_SEAT || gs.sideToMove == cfg.humanSide)
+        val canAnalyzeNow = !thinking && effectiveResult is GameResult.ONGOING
         return GameUiState(
             board = gs.board,
             sideToMove = gs.sideToMove,
@@ -136,6 +148,9 @@ class GameViewModel @Inject constructor(
             suggestedMove = _suggestedMove.value,
             canHint = canHintNow,
             canOfferDraw = canOfferDrawNow,
+            currentScore = _currentScore.value,
+            evalHistory = _evalHistory.value,
+            canAnalyze = canAnalyzeNow,
         )
     }
 
@@ -153,6 +168,44 @@ class GameViewModel @Inject constructor(
         if (s.sideToMove != cfg.humanSide.opponent) return
         if (_isEngineBusy.value) return
         launchAiMove(s)
+    }
+
+    /**
+     * 走子后自动评估当前局面,append 到 [_evalHistory] 并刷新 [_currentScore]。
+     *
+     * **不设** `_isEngineBusy`(否则会和 AI 应招互锁),走独立协程;内部
+     * `aiJob?.join()` 等 AI 应招完成后才跑 analyze,避免 UCI 会话并发损坏。
+     *
+     * **POV 规范化**:analyze 返回 sideToMove 视角;走子后 sideToMove 是
+     * "刚走完方的对手",所以如果走完的是红方(sideToMove=BLACK),分数取负
+     * 让存储统一为红方视角。
+     */
+    private fun maybeAutoEval(s: GameState) {
+        if (s.history.size <= lastSeenHistorySize) {
+            // 没有新走子(可能 undo / restart 触发 emit),不重复跑 eval
+            lastSeenHistorySize = s.history.size
+            return
+        }
+        lastSeenHistorySize = s.history.size
+        val cfg = configHolder.config.value
+        val engine = engineProvider.provide(cfg.engineType)
+        viewModelScope.launch(Dispatchers.Default) {
+            // 等 AI 应招(若刚刚是人机模式)走完,保证 engine 单线程串行
+            aiJob?.join()
+            try {
+                val raw = engine.analyze(s.board, s.sideToMove)
+                // POV 规范化到红方视角:analyze 返回 sideToMove 视角,
+                // sideToMove == BLACK(即红方刚走完)时取负转红方视角;
+                // sideToMove == RED(黑方刚走完)时已是红方视角直接保留
+                val redPov = if (s.sideToMove == Side.BLACK) -raw.scoreCp else raw.scoreCp
+                _evalHistory.value = _evalHistory.value + redPov
+                _currentScore.value = redPov
+            } catch (_: CancellationException) {
+                // 取消时静默
+            } catch (_: Throwable) {
+                // analyze 失败(子进程异常 / parse 失败)不崩溃,保留上次分数
+            }
+        }
     }
 
     private fun launchAiMove(s: GameState) {
@@ -232,11 +285,12 @@ class GameViewModel @Inject constructor(
         _suggestedMove.value = null
         val cfg = configHolder.config.value
         val historySize = repo.state.value.history.size
-        if (cfg.mode == GameMode.HUMAN_VS_AI && historySize >= 2) {
-            repo.undo(); repo.undo()
-        } else {
-            repo.undo()
-        }
+        val undoCount = if (cfg.mode == GameMode.HUMAN_VS_AI && historySize >= 2) 2 else 1
+        repeat(undoCount) { repo.undo() }
+        // eval history 与 move history 对齐,同步 drop
+        _evalHistory.value = _evalHistory.value.dropLast(undoCount.coerceAtMost(_evalHistory.value.size))
+        _currentScore.value = _evalHistory.value.lastOrNull()
+        lastSeenHistorySize = repo.state.value.history.size
     }
 
     fun onRestart() {
@@ -245,6 +299,9 @@ class GameViewModel @Inject constructor(
         _resigned.value = null
         _drawn.value = null
         _suggestedMove.value = null
+        _evalHistory.value = emptyList()
+        _currentScore.value = null
+        lastSeenHistorySize = 0
         repo.restart()
     }
 
