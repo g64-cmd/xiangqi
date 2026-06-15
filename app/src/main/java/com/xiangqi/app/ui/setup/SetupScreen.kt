@@ -1,5 +1,6 @@
 package com.xiangqi.app.ui.setup
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,6 +40,7 @@ import com.xiangqi.app.ui.game.GameMode
 @Composable
 fun SetupScreen(
     onStart: () -> Unit,
+    onAbout: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: SetupViewModel = hiltViewModel(),
 ) {
@@ -50,6 +52,7 @@ fun SetupScreen(
         onDifficultyChange = viewModel::onDifficultyChange,
         onEngineTypeChange = viewModel::onEngineTypeChange,
         onStart = { viewModel.onStart(onStart) },
+        onAbout = onAbout,
         modifier = modifier,
     )
 }
@@ -63,6 +66,7 @@ private fun SetupScreenContent(
     onDifficultyChange: (Difficulty) -> Unit,
     onEngineTypeChange: (EngineType) -> Unit,
     onStart: () -> Unit,
+    onAbout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(modifier = modifier.fillMaxSize()) { padding ->
@@ -79,6 +83,15 @@ private fun SetupScreenContent(
                 text = "中国象棋",
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
+            )
+
+            Text(
+                text = "关于",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clickable(onClick = onAbout)
+                    .padding(vertical = 4.dp),
             )
 
             Column(
