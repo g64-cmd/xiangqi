@@ -25,6 +25,7 @@ import com.xiangqi.app.ui.theme.InkBlack
 import com.xiangqi.app.ui.theme.InkGray
 import com.xiangqi.app.ui.theme.WoodLight
 import com.xiangqi.app.ui.theme.WoodMid
+import kotlin.math.roundToInt
 
 /**
  * 棋盘上一次动画状态。null 表示当前不在动画。
@@ -71,8 +72,11 @@ fun BoardCanvas(
                 .fillMaxSize()
                 .pointerInput(layout, orientation, onTap) {
                     detectTapGestures { offset ->
-                        val viewCol = ((offset.x - layout.marginX) / layout.cell).toInt()
-                        val viewRow = ((offset.y - layout.marginY) / layout.cell).toInt()
+                        // 用 round 找最近的交叉点,而非 floor 截断。
+                        // floor 在边界附近(0.7..0.9)会取下界,用户点视觉格点中心时
+                        // 偶尔偏到上一格;round 让"在格点 N 的视觉区域内点击"稳定命中 N。
+                        val viewCol = ((offset.x - layout.marginX) / layout.cell).roundToInt()
+                        val viewRow = ((offset.y - layout.marginY) / layout.cell).roundToInt()
                         if (viewCol in 0..Position.COL_MAX && viewRow in 0..Position.ROW_MAX) {
                             onTap(viewToModel(viewCol, viewRow, orientation))
                         }
