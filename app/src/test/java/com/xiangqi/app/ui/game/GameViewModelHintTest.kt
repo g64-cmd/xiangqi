@@ -72,7 +72,7 @@ class GameViewModelHintTest {
             humanSide = Side.RED,
             difficulty = Difficulty.INTERMEDIATE,
         ),
-    ): Pair<GameViewModel, GameConfigHolder> {
+    ): GameViewModel {
         val gen = MoveGeneratorImpl()
         val check = CheckDetector(gen)
         val legality = MoveLegality(gen, check)
@@ -81,13 +81,15 @@ class GameViewModelHintTest {
         val holder = GameConfigHolder()
         holder.set(config)
         val provider = EngineProvider { _ -> engine }
-        return GameViewModel(repo, gen, legality, provider, holder) to holder
+        return GameViewModel(repo, gen, legality, provider, holder).also {
+            it.engineDispatcher = testDispatcher
+        }
     }
 
     @Test
     fun `onHint 填充 suggestedMove 且不改 history`() = runTest {
         val fake = HintFakeEngine()
-        val (vm, _) = newVm(fake)
+        val vm = newVm(fake)
         vm.onHint()
         advanceUntilIdle()
         val s = snapshot(vm)
@@ -98,7 +100,7 @@ class GameViewModelHintTest {
     @Test
     fun `AI 思考中 onHint 是 no-op`() = runTest {
         val fake = HintFakeEngine(minDelay = 100L)
-        val (vm, _) = newVm(fake)
+        val vm = newVm(fake)
         // 触发 AI 应招(玩家走子)
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 2))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
@@ -114,7 +116,7 @@ class GameViewModelHintTest {
     @Test
     fun `onTap 清空 suggestedMove`() = runTest {
         val fake = HintFakeEngine()
-        val (vm, _) = newVm(fake)
+        val vm = newVm(fake)
         vm.onHint()
         advanceUntilIdle()
         assertThat(snapshot(vm).suggestedMove).isNotNull()
@@ -126,7 +128,7 @@ class GameViewModelHintTest {
     @Test
     fun `onUndo 清空 suggestedMove`() = runTest {
         val fake = HintFakeEngine()
-        val (vm, _) = newVm(fake)
+        val vm = newVm(fake)
         vm.onHint()
         advanceUntilIdle()
         assertThat(snapshot(vm).suggestedMove).isNotNull()
@@ -138,16 +140,10 @@ class GameViewModelHintTest {
     @Test
     fun `onRestart 清空 suggestedMove`() = runTest {
         val fake = HintFakeEngine()
-        val (vm, _) = newVm(fake)
+        val vm = newVm(fake)
         vm.onHint()
         advanceUntilIdle()
-        // Default dispatcher 上协程跑得快,但 emit 异步经过 Main 调度,真实 sleep 一段
-        // 让所有 emit 落到 testDispatcher 队列后再 advance
-        Thread.sleep(100)
-        advanceUntilIdle()
         vm.onRestart()
-        advanceUntilIdle()
-        Thread.sleep(100)
         advanceUntilIdle()
         assertThat(snapshot(vm).suggestedMove).isNull()
     }
@@ -155,7 +151,7 @@ class GameViewModelHintTest {
     @Test
     fun `游戏结束时 canHint 为 false`() = runTest {
         val fake = HintFakeEngine()
-        val (vm, _) = newVm(fake)
+        val vm = newVm(fake)
         vm.onResign()
         advanceUntilIdle()
         assertThat(snapshot(vm).canHint).isFalse()
@@ -185,11 +181,9 @@ private class HintFakeEngine(
     ): EngineResult {
         lastSearchDifficulty = difficulty
         if (difficulty == Difficulty.HINT) hintCallCount++
-        // 切回 Main(testDispatcher)再 delay,让 advanceUntilIdle 能控制协程进度。
-        // 否则 launchEngine 走 Dispatchers.Default,delay 是真实延迟,测试无法等待。
-        kotlinx.coroutines.withContext(Dispatchers.Main) {
-            delay(minDelay.coerceAtLeast(1L))
-        }
+        // delay 让协程进入 suspend 状态;在 Dispatchers.Default 上跑时是真实延迟,
+        // 测试通过 Thread.sleep 等真实线程完成,不依赖 Main Looper(避免 CI 崩)
+        delay(minDelay.coerceAtLeast(1L))
         val gen = MoveGeneratorImpl()
         val pseudo = gen.movesFor(board, sideToMove)
         val check = CheckDetector(gen)

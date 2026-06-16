@@ -18,8 +18,10 @@ import com.xiangqi.app.engine.Difficulty
 import com.xiangqi.app.engine.EngineProvider
 import com.xiangqi.app.engine.EngineResult
 import com.xiangqi.app.engine.SearchInfo
+import androidx.annotation.VisibleForTesting
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -64,6 +66,14 @@ class GameViewModel @Inject constructor(
     private val engineProvider: EngineProvider,
     private val configHolder: GameConfigHolder,
 ) : ViewModel() {
+
+    /**
+     * Engine 调用使用的 dispatcher。生产环境用 [Dispatchers.Default](CPU 密集);
+     * 测试可改为 [kotlinx.coroutines.test.StandardTestDispatcher] 让 advanceUntilIdle
+     * 能控制协程进度,避免依赖 Thread.sleep / Main Looper。
+     */
+    @VisibleForTesting
+    internal var engineDispatcher: CoroutineDispatcher = Dispatchers.Default
 
     private val _selected = MutableStateFlow<Position?>(null)
     private val _legalTargets = MutableStateFlow<Set<Position>>(emptySet())
@@ -206,7 +216,7 @@ class GameViewModel @Inject constructor(
         lastSeenHistorySize = s.history.size
         val cfg = configHolder.config.value
         val engine = engineProvider.provide(cfg.engineType)
-        viewModelScope.launch(Dispatchers.Default) {
+        viewModelScope.launch(engineDispatcher) {
             // 等 AI 应招(若刚刚是人机模式)走完,保证 engine 单线程串行
             aiJob?.join()
             try {
@@ -248,7 +258,7 @@ class GameViewModel @Inject constructor(
         _isEngineBusy.value = true
         val cfg = configHolder.config.value
         val engine = engineProvider.provide(cfg.engineType)
-        aiJob = viewModelScope.launch(Dispatchers.Default) {
+        aiJob = viewModelScope.launch(engineDispatcher) {
             val infoCollector = launch { engine.info.collect { _searchInfo.value = it } }
             try {
                 val result = engine.search(

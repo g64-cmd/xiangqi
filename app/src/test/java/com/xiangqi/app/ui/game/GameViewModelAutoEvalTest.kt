@@ -78,7 +78,9 @@ class GameViewModelAutoEvalTest {
         val holder = GameConfigHolder()
         holder.set(config)
         val provider = EngineProvider { _ -> engine }
-        return GameViewModel(repo, gen, legality, provider, holder)
+        return GameViewModel(repo, gen, legality, provider, holder).also {
+            it.engineDispatcher = testDispatcher
+        }
     }
 
     @Test
@@ -87,9 +89,7 @@ class GameViewModelAutoEvalTest {
         val vm = newVm(engine)
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 2))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
-        Thread.sleep(100)
         advanceUntilIdle()
-        Thread.sleep(100)
         advanceUntilIdle()
         val s = snapshot(vm)
         assertThat(s.currentScore).isNotNull()
@@ -104,9 +104,7 @@ class GameViewModelAutoEvalTest {
         val vm = newVm(engine)
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 2))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
-        Thread.sleep(100)
         advanceUntilIdle()
-        Thread.sleep(100)
         advanceUntilIdle()
         val s = snapshot(vm)
         assertThat(s.currentScore).isEqualTo(-80f)
@@ -120,13 +118,10 @@ class GameViewModelAutoEvalTest {
         val vm = newVm(engine)
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 2))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
-        Thread.sleep(50)
         advanceUntilIdle()
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 7))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 7))
-        Thread.sleep(150)
         advanceUntilIdle()
-        Thread.sleep(100)
         advanceUntilIdle()
         val s = snapshot(vm)
         assertThat(s.currentScore).isEqualTo(80f)
@@ -144,9 +139,7 @@ class GameViewModelAutoEvalTest {
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 7))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 7))
-        Thread.sleep(150)
         advanceUntilIdle()
-        Thread.sleep(50)
         advanceUntilIdle()
         val sizeBefore = snapshot(vm).evalHistory.size
         vm.onUndo()
@@ -161,7 +154,6 @@ class GameViewModelAutoEvalTest {
         val vm = newVm(engine)
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 2))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
-        Thread.sleep(100)
         advanceUntilIdle()
         vm.onRestart()
         advanceUntilIdle()
@@ -176,16 +168,13 @@ class GameViewModelAutoEvalTest {
         val vm = newVm(engine)
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 2))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
-        Thread.sleep(100)
         advanceUntilIdle()
         val before = snapshot(vm).currentScore
         // 让后续 analyze 抛异常
         engine.throwOnNext = true
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 7))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 7))
-        Thread.sleep(100)
         advanceUntilIdle()
-        Thread.sleep(50)
         advanceUntilIdle()
         val s = snapshot(vm)
         // 异常不崩溃,分数不变(被 catch)
@@ -207,7 +196,7 @@ private class AnalyzeFakeEngine(
         sideToMove: Side,
         difficulty: Difficulty,
     ): EngineResult {
-        kotlinx.coroutines.withContext(Dispatchers.Main) { delay(1L) }
+        delay(1L)
         val gen = MoveGeneratorImpl()
         val pseudo = gen.movesFor(board, sideToMove)
         val check = CheckDetector(gen)
@@ -227,7 +216,7 @@ private class AnalyzeFakeEngine(
     }
 
     override suspend fun analyze(board: Board, sideToMove: Side): AnalysisScore {
-        kotlinx.coroutines.withContext(Dispatchers.Main) { delay(1L) }
+        delay(1L)
         if (throwOnNext) throw RuntimeException("fake analyze failure")
         return AnalysisScore(scoreFor(sideToMove), false, null)
     }

@@ -77,7 +77,9 @@ class GameViewModelDrawOfferTest {
         val holder = GameConfigHolder()
         holder.set(config)
         val provider = EngineProvider { _ -> engine }
-        return GameViewModel(repo, gen, legality, provider, holder)
+        return GameViewModel(repo, gen, legality, provider, holder).also {
+            it.engineDispatcher = testDispatcher
+        }
     }
 
     @Test
@@ -105,8 +107,6 @@ class GameViewModelDrawOfferTest {
             ),
         )
         vm.onDrawOffer()
-        // Default 协程 + 异步 emit
-        Thread.sleep(100)
         advanceUntilIdle()
         val s = snapshot(vm)
         assertThat(s.result).isEqualTo(GameResult.Draw(com.xiangqi.app.domain.model.DrawReason.AGREED))
@@ -124,7 +124,6 @@ class GameViewModelDrawOfferTest {
             ),
         )
         vm.onDrawOffer()
-        Thread.sleep(200)
         advanceUntilIdle()
         // 拒绝后 _drawn 没被设,result 仍 ONGOING
         val s = snapshot(vm)
@@ -147,8 +146,6 @@ class GameViewModelDrawOfferTest {
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 2))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
         vm.onDrawOffer() // 思考中,应该被拦下
-        // 等 AI 走完
-        Thread.sleep(300)
         advanceUntilIdle()
         // 思考期间调 onDrawOffer,DrawFakeEngine score=0 若被调用会触发求和;
         // 但 onDrawOffer 被 _isEngineBusy 拦下,result 应是 ONGOING 或 RedWin/BlackWin(正常走子),
@@ -171,9 +168,7 @@ private class DrawFakeEngine(
         sideToMove: Side,
         difficulty: Difficulty,
     ): EngineResult {
-        kotlinx.coroutines.withContext(Dispatchers.Main) {
-            delay(minDelay.coerceAtLeast(1L))
-        }
+        delay(minDelay.coerceAtLeast(1L))
         val gen = MoveGeneratorImpl()
         val pseudo = gen.movesFor(board, sideToMove)
         val check = CheckDetector(gen)
