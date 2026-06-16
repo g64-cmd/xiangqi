@@ -165,6 +165,19 @@ class GameViewModel @Inject constructor(
         return true
     }
 
+    /**
+     * 引擎空闲且对局仍进行中的统一守门(M6 commit 10 抽出)。
+     *
+     * `effectiveResult` 考虑认输 / 求和 overlay(它们让对局视为结束),让所有手动
+     * engine 入口在终局或引擎繁忙时一致拒绝。
+     */
+    private fun requireEngineIdle(): Boolean {
+        if (_isEngineBusy.value) return false
+        val gs = repo.state.value
+        val effective: GameResult = _drawn.value ?: _resigned.value ?: gs.result
+        return effective is GameResult.ONGOING
+    }
+
     private fun maybeLaunchAi(s: GameState) {
         val cfg = configHolder.config.value
         if (cfg.mode != GameMode.HUMAN_VS_AI) return
@@ -255,11 +268,17 @@ class GameViewModel @Inject constructor(
     }
 
     fun onTap(position: Position) {
+        if (!requireEngineIdle()) {
+            // 即使引擎忙,玩家的 tap 也应清掉 Hint 箭头
+            if (_suggestedMove.value != null) _suggestedMove.value = null
+            return
+        }
         val s = repo.state.value
-        if (s.result !is GameResult.ONGOING) return
-        if (_isEngineBusy.value) return
         val cfg = configHolder.config.value
-        if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) return
+        if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) {
+            if (_suggestedMove.value != null) _suggestedMove.value = null
+            return
+        }
 
         // 玩家任何点击都视为"看过提示",清掉 Hint 箭头
         if (_suggestedMove.value != null) _suggestedMove.value = null
@@ -284,7 +303,7 @@ class GameViewModel @Inject constructor(
     }
 
     fun onUndo() {
-        if (_isEngineBusy.value) return
+        if (!requireEngineIdle()) return
         clearSelection()
         _suggestedMove.value = null
         val cfg = configHolder.config.value
@@ -324,9 +343,8 @@ class GameViewModel @Inject constructor(
      * 走 [Difficulty.HINT] 档浅搜,结果填入 [_suggestedMove] 由 BoardCanvas 画箭头。
      */
     fun onHint() {
+        if (!requireEngineIdle()) return
         val s = repo.state.value
-        if (s.result !is GameResult.ONGOING) return
-        if (_isEngineBusy.value) return
         val cfg = configHolder.config.value
         if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) return
         launchEngine(s, Difficulty.HINT, EngineKind.HINT) { result ->
@@ -346,9 +364,8 @@ class GameViewModel @Inject constructor(
      * 玩家视角,|score| < 30 即"对玩家而言均势"。
      */
     fun onDrawOffer() {
+        if (!requireEngineIdle()) return
         val s = repo.state.value
-        if (s.result !is GameResult.ONGOING) return
-        if (_isEngineBusy.value) return
         val cfg = configHolder.config.value
         if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) return
         if (cfg.mode == GameMode.HOT_SEAT) {
@@ -369,9 +386,8 @@ class GameViewModel @Inject constructor(
      * 优先级最高。重启时清空。
      */
     fun onResign() {
-        if (_isEngineBusy.value) return
+        if (!requireEngineIdle()) return
         val s = repo.state.value
-        if (s.result !is GameResult.ONGOING) return
         _resigned.value = when (s.sideToMove) {
             Side.RED -> GameResult.BlackWin
             Side.BLACK -> GameResult.RedWin
