@@ -53,6 +53,15 @@ android {
             isIncludeAndroidResources = true
         }
     }
+    packaging {
+        jniLibs {
+            // 让 AGP 把 .so 解压到 nativeLibraryDir 而不是从 APK 内 mmap。
+            // Pikafish 二进制(改名 libpikafish.so)需要走 ProcessBuilder.start(),
+            // 必须是真实文件路径;留在 APK 内 dlopen 模式下 ProcessBuilder 找不到文件。
+            // 与 AndroidManifest.xml 里 android:extractNativeLibs="true" 双保险。
+            useLegacyPackaging = true
+        }
+    }
 }
 
 dependencies {
