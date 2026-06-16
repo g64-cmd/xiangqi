@@ -18,15 +18,16 @@ import java.util.concurrent.TimeUnit
  *
  * 调用方([UciSession])负责在 `Dispatchers.IO` 上调度,避免阻塞主线程或 Default 调度器。
  *
- * @param executable 可执行文件,需提前 `setExecutable(true, true)`。
+ * @param executablePath 可执行文件绝对路径(nativeLibraryDir/libpikafish.so),
+ *   由 AGP jniLibs 在 APK 安装时解压,无需手动 chmod。
  * @param workingDir pikafish 的工作目录;NNUE 权重从该目录的 `pikafish.nnue` 加载。
  */
 class PikafishProcess(
-    val executable: File,
+    val executablePath: String,
     val workingDir: File,
 ) : AutoCloseable {
 
-    private val process: Process = ProcessBuilder(executable.absolutePath)
+    private val process: Process = ProcessBuilder(executablePath)
         .directory(workingDir)
         .redirectErrorStream(true)
         .start()

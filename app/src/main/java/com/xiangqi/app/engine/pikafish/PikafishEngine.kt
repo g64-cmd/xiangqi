@@ -118,10 +118,13 @@ class PikafishEngine @Inject constructor(
     private fun ensureSession(): UciSession {
         session?.let { if (it.isAlive) return it }
         val install = installer.install()
-        val proc = PikafishProcess(install.executable, install.workingDir)
+        installer.verifyExecutable()
+        val proc = PikafishProcess(install.executablePath, install.workingDir)
         val s = UciSession(proc)
         s.send("uci")
         s.send("isready")
+        // NNUE 权重显式传绝对路径,避免依赖 cwd 解析
+        s.send("setoption name EvalFile value ${install.nnueFile.absolutePath}")
         session = s
         return s
     }

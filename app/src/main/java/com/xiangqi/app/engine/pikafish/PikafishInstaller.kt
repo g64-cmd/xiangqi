@@ -10,16 +10,25 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 皮卡鱼二进制与 NNUE 权重的 assets → filesDir 安装器。
+ * 皮卡鱼 NNUE 权重的 assets → filesDir 安装器。
+ *
+ * **可执行文件**(`libpikafish.so`)不再由 Installer 复制 —— 它通过 AGP jniLibs
+ * 机制在 APK 安装时解压到 `applicationInfo.nativeLibraryDir`(SELinux
+ * `apk_data_file` 域,允许 execute_no_trans)。Installer 通过 [executablePath]
+ * 暴露该路径给 [PikafishEngine]。
+ *
+ * **NNUE 权重**(`pikafish.nnue`)是数据文件,不走 exec,无 SELinux 问题,
+ * 仍由 Installer 从 assets 复制到 filesDir,与历史一致。
  *
  * 路径约定:
- * - 可执行文件:`filesDir/pikafish/bin/pikafish`
- * - NNUE 权重:`filesDir/pikafish/pikafish.nnue`
- * - 工作目录:`filesDir/pikafish/`(pikafish 从 cwd 找 `pikafish.nnue`)
+ * - 可执行:`${applicationInfo.nativeLibraryDir}/libpikafish.so`
+ * - NNUE:`filesDir/pikafish/pikafish.nnue`
+ * - 工作目录:`filesDir/pikafish/`(pikafish 从 cwd 找 pikafish.nnue)
  *
- * 校验:每次 [install] 时检查可执行文件的 SHA-256 是否匹配 [BuildConfig.PIKAFISH_SHA]。
- * 不匹配(老版本残留 / 损坏)则重装。SHA 不可达时(assets 缺失)抛 [IllegalStateException],
- * 调用方需向用户报错。
+ * 校验:每次 [install] 时检查 NNUE 文件的 SHA-256 是否匹配
+ * [BuildConfig.PIKAFISH_NNUE_SHA],不匹配则重装。可执行文件的 SHA 由 Installer
+ * 在 [verifyExecutable] 单独提供(只读检查,不复制);不一致时抛
+ * [IllegalStateException] —— 因为可执行文件来自 APK,失败说明 APK 被篡改。
  */
 @Singleton
 class PikafishInstaller @Inject constructor(
@@ -28,44 +37,37 @@ class PikafishInstaller @Inject constructor(
 
     /** 一次安装产出的文件引用集合。 */
     data class Install(
-        val executable: File,
+        /** 可执行文件绝对路径,在 `nativeLibraryDir/libpikafish.so`。 */
+        val executablePath: String,
         val workingDir: File,
         val nnueFile: File,
     )
 
     /**
-     * 期望的 SHA-256 值。默认从 [BuildConfig] 读取,测试时可覆盖
-     * (典型用法:把 assets 占位文件的真实 SHA 注入进来)。
+     * 期望的 SHA-256 值。默认从 [BuildConfig] 读取,测试时可覆盖。
      */
     var expectedExecSha: String = BuildConfig.PIKAFISH_SHA
         internal set
     var expectedNnueSha: String = BuildConfig.PIKAFISH_NNUE_SHA
         internal set
 
-    /** assets 中的资产路径,测试可改为占位路径以避开 main 的真二进制。 */
-    internal var execAssetName: String = EXEC_ASSET
+    /** assets 中的 NNUE 资产路径,测试可改为占位路径。 */
     internal var nnueAssetName: String = NNUE_ASSET
 
     private val rootDir: File get() = File(ctx.filesDir, "pikafish")
-    private val binDir: File get() = File(rootDir, "bin")
-    private val executableFile: File get() = File(binDir, "pikafish")
     private val nnueFile: File get() = File(rootDir, "pikafish.nnue")
 
+    /** 可执行文件路径:`nativeLibraryDir/libpikafish.so`。 */
+    val executablePath: String
+        get() = File(ctx.applicationInfo.nativeLibraryDir, "libpikafish.so").absolutePath
+
     /**
-     * 确保 pikafish 与 NNUE 已安装且校验通过,返回 [Install] 引用。
+     * 确保 NNUE 已安装且 SHA 通过,返回 [Install] 引用。
      *
-     * 多次调用幂等:已安装且 SHA 匹配时直接返回;否则覆盖安装。
+     * 不复制可执行文件(由 AGP/PackageManager 在 APK 安装时处理);只校验其存在。
      */
     fun install(): Install {
-        binDir.mkdirs()
-        if (!executableFile.exists() || sha256(executableFile) != expectedExecSha) {
-            copyFromAssets(execAssetName, executableFile)
-            executableFile.setExecutable(true, true)
-            val actual = sha256(executableFile)
-            check(actual == expectedExecSha) {
-                "pikafish 可执行文件 SHA-256 不匹配:expected=$expectedExecSha, actual=$actual"
-            }
-        }
+        rootDir.mkdirs()
         if (!nnueFile.exists() || sha256(nnueFile) != expectedNnueSha) {
             copyFromAssets(nnueAssetName, nnueFile)
             val actual = sha256(nnueFile)
@@ -73,11 +75,29 @@ class PikafishInstaller @Inject constructor(
                 "pikafish.nnue SHA-256 不匹配:expected=$expectedNnueSha, actual=$actual"
             }
         }
-        return Install(executableFile, rootDir, nnueFile)
+        return Install(executablePath, rootDir, nnueFile)
     }
 
-    /** 是否已安装(不校验 SHA)。 */
-    fun isInstalled(): Boolean = executableFile.exists() && nnueFile.exists()
+    /**
+     * 校验可执行文件存在于 nativeLibraryDir 且 SHA 匹配。
+     * 失败时抛 [IllegalStateException],调用方应降级或向用户报错。
+     */
+    fun verifyExecutable() {
+        val file = File(executablePath)
+        check(file.exists()) {
+            "libpikafish.so 不存在于 nativeLibraryDir: $executablePath"
+        }
+        check(file.canExecute()) {
+            "libpikafish.so 不可执行: $executablePath"
+        }
+        val actual = sha256(file)
+        check(actual == expectedExecSha) {
+            "libpikafish.so SHA-256 不匹配:expected=$expectedExecSha, actual=$actual"
+        }
+    }
+
+    /** NNUE 是否已安装(不校验 SHA,不校验可执行)。 */
+    fun isInstalled(): Boolean = nnueFile.exists() && File(executablePath).exists()
 
     private fun copyFromAssets(assetName: String, dest: File) {
         dest.parentFile?.mkdirs()
@@ -87,7 +107,6 @@ class PikafishInstaller @Inject constructor(
     }
 
     companion object {
-        private const val EXEC_ASSET = "pikafish/pikafish"
         private const val NNUE_ASSET = "pikafish/pikafish.nnue"
 
         /** 计算 [file] 的 SHA-256,小写十六进制。 */
