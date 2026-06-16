@@ -81,6 +81,12 @@ class DifficultyGradientTest {
         }
     }
 
+    @Test
+    fun `HINT movetime is short relative to INTERMEDIATE`() {
+        assertThat(Difficulty.HINT.moveTimeMs).isLessThan(Difficulty.INTERMEDIATE.moveTimeMs)
+        assertThat(Difficulty.HINT.depth).isEqualTo(2)
+    }
+
     private suspend fun searchOnce(
         board: com.xiangqi.app.domain.model.Board,
         sideToMove: com.xiangqi.app.domain.model.Side,

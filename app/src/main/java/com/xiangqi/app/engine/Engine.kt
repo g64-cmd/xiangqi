@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
  * - [search] 为 `suspend` 函数,内部协程上下文负责取消检查(每 N 节点 ensureActive)。
  * - 调用方在外部 `Job.cancel()` 即可中止搜索;若首次迭代未完成,search 会透传 CancellationException。
  * - [info] 在每次迭代加深完成时更新,供 UI 实时显示思考过程。
+ * - [analyze] 为局势评估,默认实现走 `search(ELEMENTARY)` 抽 score;皮卡鱼引擎可覆盖
+ *   为发 `eval` 命令做 NNUE 静态评估(瞬时,不搜索)。
  */
 interface Engine {
 
@@ -37,4 +39,35 @@ interface Engine {
         sideToMove: Side,
         difficulty: Difficulty,
     ): EngineResult
+
+    /**
+     * 局势评估。返回 [sideToMove] 视角下的分数(centipawn)与 mate 标记。
+     *
+     * 默认实现走 [search] + ELEMENTARY 难度,拿 result.score 转 [AnalysisScore]。
+     * [com.xiangqi.app.engine.pikafish.PikafishEngine] 覆盖为发 `eval` 命令做 NNUE
+     * 静态评估(瞬时返回,无 mate 信息)。
+     *
+     * @return 评估结果。出错时调用方应自行兜底(不抛异常)。
+     */
+    suspend fun analyze(board: Board, sideToMove: Side): AnalysisScore {
+        val result = search(board, sideToMove, Difficulty.ELEMENTARY)
+        return AnalysisScore(
+            scoreCp = result.score.toFloat(),
+            isMate = result.isMate,
+            matePlies = result.mateInPlies,
+        )
+    }
 }
+
+/**
+ * 局势评估结果(M6 起)。
+ *
+ * @property scoreCp sideToMove 视角下的分数(centipawn);调用方需自行做 POV 规范化。
+ * @property isMate 是否为杀棋分(皮卡鱼 eval 命令永远 false)。
+ * @property matePlies 仅当 [isMate] 为 true 时有意义;距离将死的半回合数。
+ */
+data class AnalysisScore(
+    val scoreCp: Float,
+    val isMate: Boolean,
+    val matePlies: Int?,
+)

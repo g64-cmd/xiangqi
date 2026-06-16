@@ -18,9 +18,10 @@ import com.xiangqi.app.domain.model.Side
 import com.xiangqi.app.engine.SearchInfo
 
 /**
- * 顶部栏:返回按钮 + 固定标题 + AI 思考副标题 / 轮走方 / 终局结果。
+ * 顶部栏:返回按钮 + 固定标题 + AI 思考副标题 / 局势分析 / 轮走方 / 终局结果。
  *
  * - 进行中 + AI 思考:中央显示"AI 思考中…"+ SearchInfo(深度/分数/时间)。
+ * - 进行中 + 非 AI + 有分数:中央显示局势分数(红方视角)。
  * - 进行中 + 非 AI:右显示"红方走/黑方走"。
  * - 终局:右显示结果。
  */
@@ -30,6 +31,7 @@ fun GameTopBar(
     result: GameResult,
     isAiThinking: Boolean,
     searchInfo: SearchInfo?,
+    currentScore: Float? = null,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -67,6 +69,12 @@ fun GameTopBar(
                     fontStyle = FontStyle.Italic,
                     color = MaterialTheme.colorScheme.primary,
                 )
+            } else if (currentScore != null) {
+                Text(
+                    text = formatScoreCp(currentScore),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
         val indicator = when (result) {
@@ -83,5 +91,20 @@ fun GameTopBar(
             modifier = Modifier.padding(horizontal = 12.dp),
         )
     }
+}
+
+/**
+ * 把红方视角 centipawn 分数格式化为 TopBar 副标题。
+ *
+ * - |score| < 30 cp -> "均势"
+ * - 正分 -> "红方 +X.XX"
+ * - 负分 -> "黑方 +X.XX"(把负号转成黑方视角)
+ */
+internal fun formatScoreCp(scoreCp: Float): String {
+    val abs = kotlin.math.abs(scoreCp)
+    if (abs < 30f) return "均势"
+    val pawns = abs / 100f
+    val formatted = String.format("%.2f", pawns)
+    return if (scoreCp > 0) "红方 +$formatted" else "黑方 +$formatted"
 }
 

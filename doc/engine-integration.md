@@ -36,8 +36,45 @@ M5 已实现映射(见 `engine/pikafish/PikafishEngine.kt:pikafishSkill`):
 | 初级 (ELEMENTARY) | depth=2, movetime=300ms | Skill=5, movetime=300ms |
 | 中级 (INTERMEDIATE) | depth=3, movetime=800ms | Skill=12, movetime=800ms |
 | 高级 (ADVANCED) | depth=4, movetime=1500ms | Skill=20, movetime=1500ms |
+| 提示 (HINT) | depth=2, movetime=400ms | Skill=10, movetime=400ms |
+
+> HINT(M6 起新增)是内部档位,不在 SetupScreen 暴露给玩家选择,仅供
+> "提示"按钮调用一次浅搜给玩家建议。
 
 皮卡鱼 Threads 固定为 1。
+
+## 局势分析(M6):`Engine.analyze` 接口与 `eval` 命令
+
+M6 起 `Engine` 接口新增 `suspend fun analyze(board, sideToMove): AnalysisScore`,
+返回 sideToMove 视角的 centipawn 分数与 mate 标记。两种实现:
+
+- **SelfEngine** 继承默认实现(走 `search(ELEMENTARY).score` 转 `AnalysisScore`),
+  无需额外代码。
+- **PikafishEngine** 覆盖为发皮卡鱼独有的 **`eval`** 命令做 NNUE 静态评估,
+  瞬时返回一行 `Final evaluation +0.23 (white side) [with scaled NNUE, ...]`,
+  `parseEvalLine` 用正则 `Final evaluation\s+([+-]?\d+\.\d+)\s+\((white|black) side\)`
+  提取分数,float × 100 转 cp,`(black side)` 标签时取负转 white 视角。
+
+参考 chinese-chess-fish-android 的 `ComputerPlayer.java:368-378`(发送)+ 
+`514-533`(parse)流程。差异:象棋鱼不做 POV 规范化(eval 永远 white 视角,
+凑巧 Red=White 看起来对);我们在 `GameViewModel.maybeAutoEval` 里规范化到
+红方视角(`sideToMove == BLACK` 时取负),让曲线在 sideToMove 切换后仍连贯。
+
+**调用约定**:走子后 `GameViewModel.maybeAutoEval` 自动触发一次 `analyze`,
+结果 append 到 `_evalHistory` 并刷新 TopBar `currentScore`。analyze 跑在独立
+协程(不设 `_isEngineBusy` 避免与 AI 应招互锁),内部 `aiJob?.join()` 等 AI
+应招完成才跑,保证 UCI 会话单线程串行。
+
+## 引擎序列化不变量(M6 起)
+
+单引擎实例(`PikafishEngine` 缓存 UCI session / `SelfEngine` 共享 TT)**不
+支持并发 search**。`GameViewModel.launchEngine` 是所有手动 engine 入口
+(AI 自动应招 / Hint / 求和评估)的统一通道,通过 `_isEngineBusy` + `aiJob?.cancel()`
+保证序列化。`requireEngineIdle()` 把分散判断收敛为一处:`_isEngineBusy` 与
+effectiveResult(_drawn / _resigned overlay 优先)都满足才允许调用。
+
+auto-eval 是唯一的例外:它**不**走 `launchEngine`(否则会与 AI 应招死锁),
+而是跑独立 `viewModelScope.launch(Default)` + `aiJob?.join()`。
 
 ## 皮卡鱼集成方案
 

@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -21,6 +23,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Position
+import com.xiangqi.app.ui.analysis.AnalysisDialog
 import com.xiangqi.app.ui.components.BoardAnimation
 import com.xiangqi.app.ui.components.BoardCanvas
 import com.xiangqi.app.ui.components.BoardLayout
@@ -36,12 +39,23 @@ fun GameScreen(
     viewModel: GameViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(viewModel) {
+        viewModel.toast.collect { msg ->
+            snackbarHostState.showSnackbar(msg)
+        }
+    }
     GameScreenContent(
         state = state,
+        snackbarHostState = snackbarHostState,
         onTap = viewModel::onTap,
         onUndo = viewModel::onUndo,
         onResign = viewModel::onResign,
         onRestart = viewModel::onRestart,
+        onHint = viewModel::onHint,
+        onDrawOffer = viewModel::onDrawOffer,
+        onAnalyze = viewModel::onShowAnalysis,
+        onDismissAnalysis = viewModel::onDismissAnalysis,
         onExit = onExit,
         modifier = modifier,
     )
@@ -50,21 +64,28 @@ fun GameScreen(
 @Composable
 private fun GameScreenContent(
     state: GameUiState,
+    snackbarHostState: SnackbarHostState,
     onTap: (Position) -> Unit,
     onUndo: () -> Unit,
     onResign: () -> Unit,
     onRestart: () -> Unit,
+    onHint: () -> Unit,
+    onDrawOffer: () -> Unit,
+    onAnalyze: () -> Unit,
+    onDismissAnalysis: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             GameTopBar(
                 sideToMove = state.sideToMove,
                 result = state.result,
                 isAiThinking = state.isAiThinking,
                 searchInfo = state.searchInfo,
+                currentScore = state.currentScore,
                 onExit = onExit,
             )
         },
@@ -76,6 +97,12 @@ private fun GameScreenContent(
                 onUndo = onUndo,
                 onResign = onResign,
                 onRestart = onRestart,
+                canHint = state.canHint,
+                onHint = onHint,
+                canOfferDraw = state.canOfferDraw,
+                onDrawOffer = onDrawOffer,
+                canAnalyze = state.canAnalyze,
+                onAnalyze = onAnalyze,
             )
         },
     ) { padding ->
@@ -84,6 +111,12 @@ private fun GameScreenContent(
             onTap = onTap,
             modifier = Modifier.padding(padding).fillMaxSize(),
         )
+        if (state.showAnalysisDialog) {
+            AnalysisDialog(
+                scores = state.evalHistory,
+                onDismiss = onDismissAnalysis,
+            )
+        }
     }
 }
 
@@ -121,6 +154,7 @@ private fun BoardArea(
             lastMove = state.lastMove,
             onTap = onTap,
             animation = animation,
+            hintMove = state.suggestedMove,
         )
     }
 }
