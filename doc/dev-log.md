@@ -21,6 +21,63 @@
 
 ---
 
+## 2026-06-16 — M6 高级对战功能(分支 feature/M6-advanced-play)
+
+**改动**
+- 抽出 `GameViewModel.launchEngine(s, difficulty, kind, onResult)` 统一通道,
+  AI 自动应招 / Hint / 求和评估 共享 `_isEngineBusy` + `aiJob` 单引擎序列化
+- 新增 `Difficulty.HINT(2, 400)` 内部档(pikafishSkill=10),仅供"提示"按钮
+  浅搜一次。SetupScreen 两处 `when(Difficulty)` 加 `HINT -> "提示"` 分支
+- `Engine` 接口加 `analyze(board, sideToMove): AnalysisScore`(默认实现走
+  `search(ELEMENTARY).score`);`PikafishEngine` 覆盖为发皮卡鱼独有的 `eval`
+  命令做 NNUE 静态评估,parse `Final evaluation X.XX (white|black) side`
+  提取分数 × 100 转 cp,(black side) 时取负。失败兜底 0cp
+- **Hint**:`onHint` 走 HINT 浅搜,结果填入 `_suggestedMove: StateFlow<Move?>`,
+  `BoardCanvas` 新增 `drawHintArrow` 画半透明 Cinnabar 箭头(from→to + 三角
+  箭头)。onTap / onUndo / onRestart 清空
+- **求和**:`onDrawOffer` HOT_SEAT 直接 `repo.setDraw(AGREED)`;HUMAN_VS_AI
+  走 ELEMENTARY 浅搜,`|score| < DRAW_ACCEPT_CP(30)` 接受设 `_drawn`
+  overlay,否则 `_toast.tryEmit("对方拒绝了求和")` 由 SnackbarHost 显示。
+  GameRepository 加 `setDraw(reason)`(history 不变)
+- **局势分析 双引擎适配 + 曲线**:`maybeAutoEval` 走子后自动触发 analyze,
+  红方视角规范化(`sideToMove == BLACK` 时取负)。`_evalHistory` 累积 + 
+  `_currentScore` 实时刷 TopBar(`formatScoreCp` -> "红方 +1.50"/"黑方 +0.80"/
+  "均势")。`AnalysisDialog` 用 AlertDialog + Compose Canvas 自绘折线,
+  X=ply,Y=红方视角 cp,clamp 到 ±1000,0 轴中线,折线 + 半透明填充。
+  不引入 MPAndroidChart 依赖
+
+**关键决策**
+- **Hint 走 search 而非 eval**:eval 不返回 bestmove,Hint 需要 bestMove
+  做箭头,所以走浅搜;局势分析是分数评估,走 eval 即时
+- **auto-eval 不设 `_isEngineBusy`**:走独立协程 + `aiJob?.join()` 等 AI 应招
+  完成,避免互锁。这是序列化不变量的唯一例外
+- **POV 规范化**:`analyze` 返回 sideToMove 视角,`GameViewModel` 把"刚走完方
+  是红方"(即 sideToMove == BLACK)的分数取负,让 `_evalHistory` 统一红方视角
+- **曲线 clamp ±1000**:超出的 mate 等极端局面 clamp 到上下边界,避免折线
+  压缩到一根线;后续 M7 可加 mate 点红/绿标记
+- **SnackbarHost 复用 Scaffold**:GameScreen 已有 Scaffold,加 snackbarHost
+  参数 + LaunchedEffect 收 `_toast`,零额外依赖
+
+**验证**
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` 三 job
+  全绿
+- M6 新增测试:PikafishEngineEvalParseTest(6)+ GameViewModelHintTest(6)+
+  GameViewModelDrawOfferTest(4)+ GameViewModelAutoEvalTest(6)+
+  GameTopBarScoreFormatTest(4)+ AnalysisDialogScoreMapperTest(6)+
+  GameRepositoryTest+3 = 35 新用例
+- 既有 M0-M5 测试无回归
+- 真机冒烟待用户在合并 PR 后做
+
+**备注**
+- 单 PR 全部 M6 子任务,共 11 commits(launchEngine 抽取 / HINT 档 /
+  Engine.analyze + eval / Hint + 箭头 / setDraw / DrawOffer / auto-eval /
+  TopBar 分数 / AnalysisDialog / requireEngineIdle 统一 / 文档)
+- vs 象棋鱼:我们做对了 POV 规范化(它没做)和 clamp(它没做);
+  MPAndroidChart 改为 Compose Canvas 自绘,零依赖
+- M7 待办:多局管理(打破 GameConfigHolder 单局限制)、复盘回放、连续分析
+
+---
+
 ## 2026-06-16 — M5 皮卡鱼引擎集成(分支 feature/M5-pikafish)
 
 **改动**

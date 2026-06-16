@@ -4,7 +4,7 @@
 
 ## 状态
 
-🚧 开发中 —— 当前处于 **M5 皮卡鱼引擎集成** 完成阶段。详见 [doc/roadmap.md](doc/roadmap.md)。
+🚧 开发中 —— 当前处于 **M6 高级对战功能** 完成阶段(提示 / 求和 / 局势分析曲线)。详见 [doc/roadmap.md](doc/roadmap.md)。
 
 ## 功能规划
 

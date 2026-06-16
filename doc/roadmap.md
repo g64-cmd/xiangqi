@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-🎯 **M5 — 皮卡鱼引擎集成**(已完成,PikafishEngine 子进程 + UCI + SetupScreen 引擎开关 + AboutScreen GPL 合规)
+🎯 **M6 — 高级对战功能**(已完成,提示 / 求和 / 局势分析曲线 + 单引擎序列化 + 双引擎 analyze 适配)
 
-下一步:M6 高级对战功能(提示 / 求和 / 局势分析)。
+下一步:M7 打磨与发布(R8 / 图标 / 签名 / Release)。
 
 ## 里程碑清单
 
@@ -18,7 +18,7 @@
 | M3 | 棋盘 UI | ✅ 完成 | Canvas 棋盘、棋子、点击交互、简单动画、双人手动走 | feature/M3-board-ui,9 新测试,BoardGeometry round-trip 全 90 格 |
 | M4 | 游戏流程 | ✅ 完成 | SetupScreen、Navigation Compose、SelfEngine 接入、认输/悔棋门控 | feature/M4-game-flow,15 新提交,SetupViewModel+AiTest 共 13 用例 |
 | M5 | 皮卡鱼引擎集成 | ✅ 完成 | PikafishEngine 子进程、UCI 协议、EngineProvider、SetupScreen 引擎开关、AboutScreen | feature/M5-pikafish,2026.01.31 release,PikafishEngineParseInfo+Installer 共 10 新测试 |
-| M6 | 高级对战功能 | ⏳ 待启动 | 提示、求和、局势分析 | feature/M6-* |
+| M6 | 高级对战功能 | ✅ 完成 | 提示 / 求和 / 局势分析曲线 / 单引擎序列化 | feature/M6-advanced-play,35 新测试,双引擎 analyze + Compose Canvas 曲线 |
 | M7 | 打磨与发布 | ⏳ 待启动 | R8、图标、签名、Release | feature/M7-* |
 
 ## 状态图例
