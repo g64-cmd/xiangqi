@@ -39,8 +39,13 @@ class PikafishInstallerTest {
     fun setUp() {
         filesDir = tmp.newFolder("files")
         nativeLibraryDir = tmp.newFolder("nativeLibrary", "arm64")
-        // 预置 libpikafish.so(模拟 AGP 安装时解压)
-        File(nativeLibraryDir, "libpikafish.so").writeBytes(execBytes)
+        // 预置 libpikafish.so(模拟 AGP 安装时解压)。
+        // 必须显式 setExecutable,Linux CI 上 writeBytes 不会自动加 +x,
+        // 导致 verifyExecutable 的 canExecutable() 检查失败(Windows 总是 true)。
+        File(nativeLibraryDir, "libpikafish.so").apply {
+            writeBytes(execBytes)
+            setExecutable(true, false)
+        }
 
         ctx = mockk(relaxed = true)
         every { ctx.filesDir } returns filesDir
