@@ -17,6 +17,7 @@ import com.xiangqi.app.domain.rules.MoveLegality
 import com.xiangqi.app.engine.Difficulty
 import com.xiangqi.app.engine.EngineProvider
 import com.xiangqi.app.engine.EngineResult
+import com.xiangqi.app.engine.EngineUnavailableException
 import com.xiangqi.app.engine.SearchInfo
 import androidx.annotation.VisibleForTesting
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -269,6 +270,12 @@ class GameViewModel @Inject constructor(
                 onResult(result)
             } catch (_: CancellationException) {
                 // 取消时静默退出
+            } catch (e: EngineUnavailableException) {
+                // 引擎崩溃 / 启动失败 / 输出异常。降级为 toast,不闪退。
+                // HUMAN_VS_AI 模式下 AI 应招失败,轮到对方的局面会"卡住":
+                // 此时让玩家继续操作(切换到 SelfEngine 或重开)。GameViewModel
+                // 不自动 fallback,避免静默走错引擎。
+                _toast.tryEmit("引擎不可用:${e.message ?: "未知原因"}")
             } finally {
                 infoCollector.cancel()
                 _searchInfo.value = null
