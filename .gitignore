@@ -73,11 +73,18 @@ Thumbs.db
 # Kotlin cache
 *.kotlin_module
 
-# Pikafish engine binaries (built locally with NDK, not committed)
+# Pikafish engine binaries:NNUE 权重大,本地准备,不进 git;
+# libpikafish.so 是从 official release 解压改名的可执行 ELF,需要随仓库分发
+# (否则用户 clone 后无法跑皮卡鱼模式)。
 *.nnue
 /pikafish-build/
 /pikafish-bin/
 /app/src/main/assets/pikafish/
+
+# 默认忽略 jniLibs 下的所有 .so(防误提交临时构建产物);
+# 用 ! 显式 unignore 我们要分发的 libpikafish.so。
+/app/src/main/jniLibs/**/*.so
+!/app/src/main/jniLibs/arm64-v8a/libpikafish.so
 
 # 原始 release 包(用户本机解压,不进 git)
 /皮卡鱼 20260131/
