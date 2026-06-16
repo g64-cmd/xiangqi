@@ -21,6 +21,70 @@
 
 ---
 
+## 2026-06-17 — 皮卡鱼 SELinux / 引擎降级 / 点击 round 修复(分支 fix/pikafish-selinux-execute,PR #10)
+
+**改动**
+- **走子动画状态机 bug 修复**(commit 8416deb):`animProgressTarget` 设为 0
+  后再没推回 1,导致 progress 永远停在 0,`computeAnimation` 一直返回非 null,
+  drawPieces 跳过 lastMove.from + drawAnimationOverlay 在 from 画动画棋子 +
+  drawPieces 在 to 画已落子棋子 = 视觉双炮 + 后续点击错位。改用
+  `Animatable.snapTo(0f).animateTo(1f, 200ms)`,动画完成后 progress>=1f
+  自动归位
+- **皮卡鱼二进制 SELinux `execute_no_trans` 拒绝**:
+  Android 10+ (API 29+) SELinux 禁止从 `app_data_file` 域 exec 二进制,
+  `filesDir/pikafish/bin/pikafish` 启动失败。参考 chinese-chess-fish-android 实践,
+  把 pikafish ELF 改名为 `libpikafish.so` 迁到 `app/src/main/jniLibs/arm64-v8a/`,
+  AGP 在 APK 安装时解压到 `nativeLibraryDir`(`apk_data_file` 域,允许 exec)。
+  Gradle `packaging.jniLibs.useLegacyPackaging=true` + Manifest
+  `extractNativeLibs="true"` 双保险
+- **PikafishInstaller 重构**:删除 ELF assets→filesDir 复制逻辑,改为读
+  `applicationInfo.nativeLibraryDir/libpikafish.so`;新增 `verifyExecutable()`
+  校验存在 + 可执行 + SHA;`Install` data class `executable: File` 改为
+  `executablePath: String`;NNUE 仍走 assets→filesDir(数据文件无 SELinux 问题)
+- **PikafishEngine.ensureSession**:`install.executablePath` 替代 `executable`,
+  启动后发 `setoption name EvalFile value <绝对路径>` 显式传 NNUE
+- **PikafishProcess**:构造参数 `File executable` → `String executablePath`
+  (ProcessBuilder 接收 String,内部不变)
+- **引擎崩溃降级**:新增 `EngineUnavailableException`(RuntimeException 子类)。
+  PikafishEngine.ensureSession 把 IOException / IllegalStateException 包装成
+  EngineUnavailableException;`search` "未返回 bestmove" 也改抛 EngineUnavailableException。
+  GameViewModel.launchEngine 增加 catch EngineUnavailableException → emit toast
+  "引擎不可用:<原因>",不闪退,棋盘状态不变
+- **点击坐标映射 round**:`((offset-margin)/cell).toInt()` 用 floor 截断,边界
+  附近(0.7..0.9)会取下界,用户精准点交叉点偶尔命中上一格。改用 `roundToInt`
+  找最近交叉点。真机 logcat 验证:用户点 (627, 1316) 原本算 viewRow=6(实际距
+  viewRow=7 中心 28.8px,距 viewRow=6 中心 104.5px),改 round 后 viewRow=7
+
+**关键决策**
+- **方案选 lib/ 改名而非 JNI 嵌入**:象棋鱼已验证 lib/ 改名是业界主流,1 天
+  工作量 vs JNI 3-5 天,且保留崩溃隔离(pikafish 崩 ≠ app 崩)。plan 末尾留
+  JNI 迁移入口,未来 targetSdk 进一步提升时考虑
+- **EngineUnavailableException 用 RuntimeException 而非 checked**:引擎崩溃是
+  运行时故障,调用方无法通过类型签名预知;但 ViewModel 显式 try-catch 降级
+- **catch 在 launchEngine 而非 PikafishEngine 内部**:让降级策略集中在
+  ViewModel 层,Engine 实现保持"失败即抛异常"的语义清晰
+
+**验证**
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` 三 job 全绿
+- 新增测试:GameViewModelEngineFailureTest(2)+ PikafishInstallerTest
+  verifyExecutable 通过/失败 2 个 case
+- 真机(Honor arm64)实测:皮卡鱼走子 + AI 应招 + TopBar 分数显示都正常
+- 模拟器(x86_64 + ndk_translation):pikafish ELF 仍 SIGSEGV,但 app 不闪退,
+  弹 toast"引擎不可用"
+- 真机点击体验:精准点交叉点和边界附近都能稳定命中视觉格点
+
+**备注**
+- 5 commits(改名 ELF / useLegacyPackaging / Installer+Engine+Process 合并 /
+  异常处理 + toast / tap round)+ 1 commit CI fix(setExecutable 在 Linux 测试
+  缺 +x)
+- **未来待办**:
+  - 16 KB page size 对齐(pikafish ELF LOAD 段重新链接到 0x4000,Google 2025-11-01
+    起 targetSdk=15+ 强制)
+  - 多 ABI 支持(若要支持 x86_64 模拟器原生跑,需加 x86_64 pikafish 二进制)
+  - JNI 嵌入(若 lib/ 改名方案在更高 targetSdk 出问题)
+
+---
+
 ## 2026-06-16 — M6 高级对战功能(分支 feature/M6-advanced-play)
 
 **改动**

@@ -64,19 +64,25 @@ Hilt 提供:
 - `@HiltAndroidApp XiangqiApplication` —— 入口
 - `@AndroidEntryPoint MainActivity` —— Activity 注入
 - `@HiltViewModel` —— 每个 ViewModel
-- `@Module @InstallIn(SingletonComponent::class)` —— `AppModule`、`EngineModule`、`RepositoryModule`
+- `@Module @InstallIn(SingletonComponent::class) object GameModule` —— 提供
+  SelfEngine / PikafishEngine / EngineProvider(按 `@SelfEngineQual` /
+  `@PikafishEngineQual` qualifier 区分)
+- Repository(`GameRepository`)、`PikafishInstaller` 等通过 `@Inject constructor`
+  自动注入,无需 @Provides
 
 ## 线程模型
 
 | Dispatcher | 用途 |
 |---|---|
 | `Dispatchers.Main` | UI 重组、ViewModel 事件入口 |
-| `Dispatchers.Default` | CPU 密集型(自研搜索引擎) |
+| `engineDispatcher`(默认 `Dispatchers.Default`,ViewModel 内 `@VisibleForTesting`) | 引擎搜索 / analyze;测试可注入 StandardTestDispatcher |
 | `Dispatchers.IO` | 文件读写、子进程 IO(皮卡鱼 stdin/stdout) |
 
-定义在 `util/CoroutineDispatchers.kt`,Hilt 注入便于测试替换。
+`GameViewModel.engineDispatcher` 用 `@VisibleForTesting internal var` 暴露,
+单测注入 `StandardTestDispatcher` 让 `advanceUntilIdle` 能控制协程进度。
 
 ## 后续待补充
 
-- [ ] 完整状态机图(M4 完成后补充 GameViewModel 状态流转图)
-- [ ] 主题与配色系统(M3 完成后补充)
+- [x] 完整状态机图 —— 见 `ui/game/GameViewModel.kt` KDoc(选择状态机 / 互斥门控 /
+  engine 序列化不变量)
+- [x] 主题与配色系统 —— 见 `ui/theme/`(Material 3 + 中国风木纹 / 朱砂 / 墨黑)

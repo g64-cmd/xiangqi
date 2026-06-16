@@ -36,9 +36,14 @@ on:
 - `actions/setup-java@v4` 内置 `cache: gradle`,自动缓存 `~/.gradle/caches` 与 `.gradle`。
 - 额外 `actions/cache@v4`,key:`gradle-${{ hashFiles('**/*.gradle.kts', '**/libs.versions.toml') }}`。
 
-### 不在 CI 中编译 Pikafish
+### 皮卡鱼二进制随仓库分发
 
-Pikafish 二进制由开发者本地用 NDK 编译后放入 `app/src/main/assets/pikafish/`,被 `.gitignore` 忽略。CI 跑 `assembleDebug` 时如果 assets 中没有二进制,`PikafishInstaller` 运行时会报错——但 CI 跑的单元测试不依赖此,只有真机/模拟器测试需要。
+`libpikafish.so`(改名后的 ELF)放在 `app/src/main/jniLibs/arm64-v8a/`,随 git
+分发,CI 跑 `assembleDebug` 时自动打入 APK 的 `lib/arm64-v8a/`。
+
+**NNUE 权重** `pikafish.nnue`(50.7 MB)被 `.gitignore` 忽略,不随 git 分发。
+CI 跑的单元测试不依赖 NNUE(`PikafishInstallerTest` 用 mock assets + 临时目录);
+真机测试需要开发者本地准备 NNUE 后构建 APK。
 
 ## release.yml 详解
 
