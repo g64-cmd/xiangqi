@@ -1,6 +1,6 @@
 package com.xiangqi.app.ui.game
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,7 +11,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -127,21 +126,21 @@ private fun BoardArea(
     modifier: Modifier = Modifier,
 ) {
     val lastMove = state.lastMove
+    // 动画状态机:每次 lastMove 变化时把 Animatable 从 0 渐变到 1。
+    // progress == 1f 表示动画结束,computeAnimation 返回 null,from 格改由
+    // drawPieces 绘制;动画期间 drawPieces 跳过 from 格,由 drawAnimationOverlay
+    // 单独画移动中的棋子。
+    val progressState = remember { Animatable(1f) }
     var animatedMove by remember { mutableStateOf<Move?>(null) }
-    var animProgressTarget by remember { mutableFloatStateOf(1f) }
 
     LaunchedEffect(lastMove) {
         if (lastMove != null && lastMove != animatedMove) {
             animatedMove = lastMove
-            animProgressTarget = 0f
+            progressState.snapTo(0f)
+            progressState.animateTo(1f, tween(durationMillis = 200))
         }
     }
-
-    val progress by animateFloatAsState(
-        targetValue = animProgressTarget,
-        animationSpec = tween(durationMillis = 200),
-        label = "piece-move",
-    )
+    val progress = progressState.value
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val layout = computeLayoutFromConstraints(constraints, density = LocalDensity.current.density)
