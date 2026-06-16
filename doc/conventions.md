@@ -37,7 +37,8 @@
 
 ### scope
 
-里程碑编号,如 `M0`、`M1`、`M5`。
+里程碑编号(里程碑内 commit),如 `M0`、`M1`、`M5`;持续修复阶段可用主题名
+(`pikafish`、`ui`、`test`)。
 
 ### 示例
 
@@ -48,6 +49,12 @@ fix(M2): correct alpha-beta pruning in quiescence
 build(M0): add Hilt and Navigation dependencies
 docs(M0): document engine integration plan
 ci(M0): set up GitHub Actions workflow
+
+# 持续修复阶段(M0-M6 合并后)
+chore(pikafish): move ELF to jniLibs as libpikafish.so
+fix(pikafish): catch engine failure and degrade to toast instead of crash
+fix(ui): use round instead of floor for board tap coordinate mapping
+fix(test): set executable bit on fake .so for cross-platform verifyExecutable
 ```
 
 ### 单 commit 颗粒度
