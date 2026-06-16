@@ -59,4 +59,5 @@ data class GameUiState(
     val currentScore: Float? = null,
     val evalHistory: List<Float> = emptyList(),
     val canAnalyze: Boolean = false,
+    val showAnalysisDialog: Boolean = false,
 )
