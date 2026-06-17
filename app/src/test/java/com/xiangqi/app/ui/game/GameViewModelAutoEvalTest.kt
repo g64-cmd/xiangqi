@@ -10,7 +10,6 @@ import com.xiangqi.app.domain.movegen.MoveGeneratorImpl
 import com.xiangqi.app.domain.rules.CheckDetector
 import com.xiangqi.app.domain.rules.CheckmateDetector
 import com.xiangqi.app.domain.rules.MoveLegality
-import com.xiangqi.app.engine.AnalysisScore
 import com.xiangqi.app.engine.Difficulty
 import com.xiangqi.app.engine.Engine
 import com.xiangqi.app.engine.EngineProvider
@@ -170,14 +169,14 @@ class GameViewModelAutoEvalTest {
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
         advanceUntilIdle()
         val before = snapshot(vm).currentScore
-        // 让后续 analyze 抛异常
+        // 让后续 ANALYZE search 抛 EngineUnavailableException(launchEngine 会 catch)
         engine.throwOnNext = true
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 7))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 7))
         advanceUntilIdle()
         advanceUntilIdle()
         val s = snapshot(vm)
-        // 异常不崩溃,分数不变(被 catch)
+        // 异常不崩溃,分数不变(launchEngine catch 后 _toast,不更新 _currentScore)
         assertThat(s.currentScore).isEqualTo(before)
     }
 }
@@ -197,6 +196,9 @@ private class AnalyzeFakeEngine(
         difficulty: Difficulty,
     ): EngineResult {
         delay(1L)
+        if (throwOnNext && difficulty == Difficulty.ANALYZE) {
+            throw com.xiangqi.app.engine.EngineUnavailableException("fake analyze failure")
+        }
         val gen = MoveGeneratorImpl()
         val pseudo = gen.movesFor(board, sideToMove)
         val check = CheckDetector(gen)
@@ -213,11 +215,5 @@ private class AnalyzeFakeEngine(
             isMate = false,
             mateInPlies = null,
         )
-    }
-
-    override suspend fun analyze(board: Board, sideToMove: Side): AnalysisScore {
-        delay(1L)
-        if (throwOnNext) throw RuntimeException("fake analyze failure")
-        return AnalysisScore(scoreFor(sideToMove), false, null)
     }
 }

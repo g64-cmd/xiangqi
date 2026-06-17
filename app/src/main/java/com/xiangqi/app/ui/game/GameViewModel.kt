@@ -201,11 +201,19 @@ class GameViewModel @Inject constructor(
     /**
      * 走子后自动评估当前局面,append 到 [_evalHistory] 并刷新 [_currentScore]。
      *
-     * **不设** `_isEngineBusy`(否则会和 AI 应招互锁),走独立协程;内部
-     * `aiJob?.join()` 等 AI 应招完成后才跑 analyze,避免 UCI 会话并发损坏。
+     * **走 [launchEngine] 通道**(M7 修复):与 AI 应招共用 `aiJob` +
+     * `_isEngineBusy`。这样既保证 UCI 单实例串行(AI 应招 → auto-eval →
+     * 下一回合 AI 应招依次跑),又让 AI 应招能抢占未完成的 auto-eval
+     *(`aiJob?.cancel()` 取消慢吞吞的 3 秒 ANALYZE)。
      *
-     * **POV 规范化**:analyze 返回 sideToMove 视角;走子后 sideToMove 是
-     * "刚走完方的对手",所以如果走完的是红方(sideToMove=BLACK),分数取负
+     * **早期 bug**:原实现走独立协程 + `aiJob?.join()` ad-hoc 序列化,不设
+     * `_isEngineBusy`。后果是 auto-eval 跑 ANALYZE 期间 `_isEngineBusy=false`,
+     * 玩家走子触发 `maybeLaunchAi` 误判引擎空闲,启动 AI 应招,与 auto-eval
+     * 在同一 UCI session 并发 → 子进程输出混乱 → search 永远等不到 bestmove
+     * → 第 3 步卡死。
+     *
+     * **POV 规范化**:EngineResult.score 是 sideToMove 视角;走子后 sideToMove
+     * 是"刚走完方的对手",所以如果走完的是红方(sideToMove=BLACK),分数取负
      * 让存储统一为红方视角。
      */
     private fun maybeAutoEval(s: GameState) {
@@ -218,23 +226,16 @@ class GameViewModel @Inject constructor(
         val cfg = configHolder.config.value
         // 快打模式:玩家关闭局势评估时跳过 ANALYZE 深搜,TopBar 与局势带保持空
         if (!cfg.enableAnalysis) return
-        val engine = engineProvider.provide(cfg.engineType)
-        viewModelScope.launch(engineDispatcher) {
-            // 等 AI 应招(若刚刚是人机模式)走完,保证 engine 单线程串行
-            aiJob?.join()
-            try {
-                val raw = engine.analyze(s.board, s.sideToMove)
-                // POV 规范化到红方视角:analyze 返回 sideToMove 视角,
-                // sideToMove == BLACK(即红方刚走完)时取负转红方视角;
-                // sideToMove == RED(黑方刚走完)时已是红方视角直接保留
-                val redPov = if (s.sideToMove == Side.BLACK) -raw.scoreCp else raw.scoreCp
-                _evalHistory.value = _evalHistory.value + redPov
-                _currentScore.value = redPov
-            } catch (_: CancellationException) {
-                // 取消时静默
-            } catch (_: Throwable) {
-                // analyze 失败(子进程异常 / parse 失败)不崩溃,保留上次分数
-            }
+        // 人机模式下,玩家走子后 sideToMove = AI 方。此时 maybeLaunchAi 已启动
+        // AI 应招(occupy aiJob),maybeAutoEval 不能并发跑 ANALYZE(否则会
+        // aiJob?.cancel() 取消 AI 应招)。等 AI 走完后 emit 时 sideToMove 变回
+        // 玩家方,此时再 eval 即"玩家走完 + AI 应招完成"的局面。
+        if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove == cfg.humanSide.opponent) return
+        val sideToMove = s.sideToMove
+        launchEngine(s, Difficulty.ANALYZE, EngineKind.AUTO_EVAL) { result ->
+            val redPov = if (sideToMove == Side.BLACK) -result.score.toFloat() else result.score.toFloat()
+            _evalHistory.value = _evalHistory.value + redPov
+            _currentScore.value = redPov
         }
     }
 
@@ -463,7 +464,7 @@ class GameViewModel @Inject constructor(
      * 标识当前 `launchEngine` 调用的语义入口。仅用于日志/调试,M6 起所有 engine
      * 入口共用一个序列化通道。
      */
-    private enum class EngineKind { AI_MOVE, HINT, DRAW_EVAL, MANUAL_ANALYZE }
+    private enum class EngineKind { AI_MOVE, HINT, DRAW_EVAL, MANUAL_ANALYZE, AUTO_EVAL }
 
     companion object {
         /**

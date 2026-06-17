@@ -10,7 +10,6 @@ import com.xiangqi.app.domain.movegen.MoveGeneratorImpl
 import com.xiangqi.app.domain.rules.CheckDetector
 import com.xiangqi.app.domain.rules.CheckmateDetector
 import com.xiangqi.app.domain.rules.MoveLegality
-import com.xiangqi.app.engine.AnalysisScore
 import com.xiangqi.app.engine.Difficulty
 import com.xiangqi.app.engine.Engine
 import com.xiangqi.app.engine.EngineProvider
@@ -107,11 +106,12 @@ class GameViewModelAnalysisToggleTest {
 }
 
 /**
- * 计数式 fake engine:只记录 analyze 被调用的次数,不依赖具体分数,
- * 用于断言"开关关闭时 analyze 根本不被调用"。
+ * 计数式 fake engine:记录 ANALYZE 难度 search 被调用的次数。
+ * maybeAutoEval 改走 launchEngine(ANALYZE) 后,开关断言基于 search 调用次数。
  */
 private class AnalyzeCountingEngine : Engine {
     var analyzeCalls = 0
+        private set
 
     private val _info = MutableStateFlow<SearchInfo?>(null)
     override val type: EngineType = EngineType.SELF
@@ -122,6 +122,7 @@ private class AnalyzeCountingEngine : Engine {
         sideToMove: Side,
         difficulty: Difficulty,
     ): EngineResult {
+        if (difficulty == Difficulty.ANALYZE) analyzeCalls += 1
         delay(1L)
         val gen = MoveGeneratorImpl()
         val pseudo = gen.movesFor(board, sideToMove)
@@ -139,11 +140,5 @@ private class AnalyzeCountingEngine : Engine {
             isMate = false,
             mateInPlies = null,
         )
-    }
-
-    override suspend fun analyze(board: Board, sideToMove: Side): AnalysisScore {
-        analyzeCalls += 1
-        delay(1L)
-        return AnalysisScore(0f, false, null)
     }
 }
