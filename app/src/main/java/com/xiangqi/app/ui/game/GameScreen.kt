@@ -3,6 +3,7 @@ package com.xiangqi.app.ui.game
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -30,6 +31,7 @@ import com.xiangqi.app.ui.components.BoardCanvas
 import com.xiangqi.app.ui.components.BoardLayout
 import com.xiangqi.app.ui.components.GameBottomBar
 import com.xiangqi.app.ui.components.GameTopBar
+import com.xiangqi.app.ui.components.ScoreBar
 import com.xiangqi.app.ui.components.computeLayout
 import com.xiangqi.app.ui.components.modelToView
 
@@ -107,11 +109,18 @@ private fun GameScreenContent(
             )
         },
     ) { padding ->
-        BoardArea(
-            state = state,
-            onTap = onTap,
-            modifier = Modifier.padding(padding).fillMaxSize(),
-        )
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize(),
+        ) {
+            BoardArea(
+                state = state,
+                onTap = onTap,
+                modifier = Modifier.weight(1f),
+            )
+            ScoreBar(scoreCp = state.currentScore)
+        }
         if (state.showAnalysisDialog) {
             AnalysisDialog(
                 scores = state.evalHistory,
