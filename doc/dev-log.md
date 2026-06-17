@@ -21,6 +21,39 @@
 
 ---
 
+## 2026-06-18 — mate 符号修正 + Hint 中文棋谱(分支 fix/ui-and-analysis-improvements 续)
+
+**改动**
+- **负 mate 分数符号修正**(commit 4d0331a):UCI `score mate -N` 表示当前走子方 N
+  半回合内被将杀,旧实现 `mateScore(N) = MATE - N` 在 N<0 时返回正数(MATE+|N|),
+  被 ScoreBar / TopBar / scoreToLabel 误判为"占优"。修复后 N<0 返回 `-(MATE+N)`
+  (即 `-(MATE-|N|)`)。新增回归测试 `negative mate score means side to move is being
+  mated` 锁定符号与可逆性。表现:红方被将杀时,优势图正确指向黑方到底部,TopBar
+  显示"黑方 将杀 N 步内",ScoreBar 显示"黑方 将杀 N 步内"
+- **Hint 候选中文棋谱**(commit 96149e7):新增 domain/notation/ChineseNotation,
+  把 Move 翻译为标准中文象棋记谱(炮二平五 / 马八进七 / 前车退一)。HintBar
+  调用 format(move, boardBefore) 显示中文,GameScreen 透传 state.board。
+  10 用例 ChineseNotationTest 覆盖开局炮二平五 / 炮八平五 / 马八进七 / 相七进九 /
+  车九进六 / 车1进4 / 兵九进一 / 同列双子前/后
+
+**关键决策**
+- **mate 符号约定**:遵循 UCI 标准(正=走子方将杀对方,负=走子方被将杀),
+  与普通 cp 分符号语义一致(正=当前走子方占优)。`mateInPlies` 原本就期望
+  负值,无需改;`Search.terminalScore` 仍走 `-mateScore(ply)`,语义保持一致
+- **中文棋谱简化**:不实现三子同列(中国象棋理论上不可能出现,兵卒理论
+  可能但极少);斜行类(马仕相象)用目标列号作为"步数"——这是标准记谱
+  约定,因为这些棋子不能直行进退
+
+**验证**
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` 三 job 全绿
+- 新增 SearchMateTest 负 mate 用例(1)、ChineseNotationTest(10)
+
+**备注**
+- 真机冒烟待用户做:红方被将杀时优势图应指向黑方底;Hint 候选条应显示
+  中文棋谱而非 UCI 串
+
+---
+
 ## 2026-06-18 — 局势分析重构 + Hint 多候选 + UI 适配(分支 fix/ui-and-analysis-improvements)
 
 **改动**
