@@ -126,7 +126,10 @@ private fun GameScreenContent(
                 candidates = state.suggestions,
                 onPlay = onPlayHint,
             )
-            ScoreBar(scoreCp = state.currentScore)
+            ScoreBar(
+                scores = state.evalHistory,
+                currentScore = state.currentScore,
+            )
         }
         if (state.showAnalysisDialog) {
             AnalysisDialog(
