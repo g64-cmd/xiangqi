@@ -367,8 +367,13 @@ private fun DrawScope.drawPieces(
         for (col in 0..Position.COL_MAX) {
             val piece = board[col, row] ?: continue
             val pos = Position(col, row)
-            // 动画期间跳过 lastMove.from(由 drawAnimationOverlay 单独画)
-            if (animation != null && lastMove != null && pos == lastMove.from) continue
+            // 动画期间跳过 from 与 to:
+            // - from 由 drawAnimationOverlay 单独画
+            // - to 在 repo.applyMove 后 board 已落子,但视觉上仍应处于"移动中",
+            //   否则 to 格上的落子棋子会一路可见,与移动中的 overlay 形成长距离拖影
+            if (animation != null && lastMove != null) {
+                if (pos == lastMove.from || pos == lastMove.to) continue
+            }
             val (vc, vr) = modelToView(pos, orientation)
             val center = layout.centerOf(vc, vr)
             with(PiecePainter) { drawPiece(center, radius, piece, fontSizePx) }
