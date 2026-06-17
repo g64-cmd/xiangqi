@@ -21,6 +21,85 @@
 
 ---
 
+## 2026-06-18 — 局势分析重构 + Hint 多候选 + UI 适配(分支 fix/ui-and-analysis-improvements)
+
+**改动**
+- **状态栏 inset 适配**:enableEdgeToEdge 已开但内容未加 inset,刘海屏 / 水滴屏
+  状态栏遮挡 GameTopBar 分数与 SetupScreen 标题。给 GameTopBar 加 statusBarsPadding,
+  GameBottomBar 加 navigationBarsPadding,SetupScreen / AboutScreen 同时加两者。
+  SetupScreen `vertical=16dp`(原 32)、`spacedBy=16dp`(原 20),内容回归一屏不再
+  微滑
+- **棋子长距离拖影**:drawPieces 动画期间只跳过 lastMove.from,但 to 在 applyMove
+  后 board 已落子,长距离移动(车炮)时 overlay 移动棋子沿途可见而 to 格落子棋子
+  一直亮着,叠加成拖影。动画期间也跳过 to,统一由 drawAnimationOverlay 绘制
+- **局势评估改用 search**:删除 PikafishEngine.analyze 的 eval 命令覆盖(NNUE
+  静态评估只看子力配置不预判回合,吃子后短期占优被当全局优势,后续兑子反扑后
+  实际仍劣势却显示占优——曲线剧烈震荡根因),回到 Engine.analyze 默认实现走
+  search + ANALYZE 深档;同步删除 parseEvalLine 与 PikafishEngineEvalParseTest
+- **新增 ANALYZE 内部档**:Difficulty.ANALYZE(depth=12, movetime=3000ms),
+  专用局势评估,不向玩家暴露。皮卡鱼 pikafishSkill 把 ANALYZE 映射到 skill=20
+  (不影响 score 精度,只影响走子噪声)。用户决策:玩家有耐心,3s 延迟换取深搜
+  精度。DifficultyGradientTest 跳过 ANALYZE 档(movetime 3000ms 在单测环境
+  跑不到 depth=12)
+- **局势评估开关**:GameConfig / SetupUiState 加 enableAnalysis(默认开),
+  SetupScreen 难度选项下方加 Switch;GameViewModel.maybeAutoEval 守门,关闭时
+  跳过 ANALYZE 深搜,玩家可关闭进入"快打模式"。SetupScreen 难度迭代 filter
+  掉 HINT / ANALYZE 内部档
+- **TopBar 数值精度**:formatScoreCp 改为始终显示具体数值(保留 1 位小数,
+  0 显示均势),不再 |score|<30 归一为"均势",让开局不同应招的细微分差可见
+- **ScoreBar 局势带**:新增 ScoreBar Composable,棋盘下方指针式进度条,0 轴
+  居中,红方占优指针偏左(Cinnabar)黑方占优偏右(InkBlack),叠加局势文字
+  标签(均势/微优/占优/大优/决定性)。scoreToFraction 把 cp 分段映射到
+  [-1,+1]:|s|<30 均势、30..80 微优(0.15..0.35)、80..200 占优(0.35..0.60)、
+  200..600 大优(0.60..0.90)、>=600 决定性(1.0)。GameScreen 内容区改 Column,
+  BoardArea weight(1f),ScoreBar 占固定 44dp
+- **Hint 多候选**:Engine 接口加 hintCandidates 默认走单 bestmove;皮卡鱼覆盖
+  发 setoption MultiPV value n + go movetime 400,parseInfoMultiPvFirstMove 解析
+  multipv 索引 + pv 首 4 字符 UCI,聚合到 bestmove 行返回去重 top-N,结束还原
+  MultiPV=1;自研 Search 加 searchRootTopN(root 各走法各跑一次完整窗口 negamax
+  拿精确分数排序),SelfEngine 覆盖 hintCandidates 走 HINT 难度调它。GameUiState
+  suggestedMove → suggestions:List<Move>;onHint 写入候选,新增 onPlayHint(index)
+  走候选 + 清空。BoardCanvas 主推荐箭头从 suggestions.firstOrNull() 取;新增
+  HintBar 横向 3 个 OutlinedButton(主推/候选 2/候选 3 + UCI 串),放 GameScreen
+  ScoreBar 上方。候选**不显示分数**:走完任何候选后按 auto-eval 流程刷新真实局势
+
+**关键决策**
+- **search vs eval**:用户问"为什么不能用 NNUE eval"。NNUE 是叶子打分用,作为
+  "局势判断"会因不预判回合而失真(轮走方造成的偏差 + 子力噪声)。真实局势必须
+  靠搜索反映"双方都下最优 N 步后谁优"。皮卡鱼 movetime 3000ms 在用户决策中
+  被接受,因为"下象棋的人有耐心,3 秒远比玩家自己思考时间短"
+- **不复用 AI 应招分数**:用户决定每次单独跑 ANALYZE,人机模式 AI 应招 ~1.5s +
+  auto-eval 3s 串行接受,延迟换精度
+- **候选不显示分数**:用户决定"应着后分数就是走完子搜索的结果",候选只是 3 个
+  走子选项;走完后正常 auto-eval 流程刷新 TopBar/ScoreBar。简化实现:MultiPV
+  只需解析首着,无需 score
+- **局势带刻度准则**:|s|<30 均势、30..80 微优、80..200 占优、200..600 大优、
+  >=600 决定性。基于国际象棋通用 100cp≈1 兵准则
+- **ANALYZE 内部档**:不向玩家暴露,SetupScreen filter 掉;ANALYZE 映射皮卡鱼
+  skill=20(评估场景要最高精度,skill 不影响 score)
+
+**验证**
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` 三 job 全绿
+- 新增测试:GameViewModelAnalysisToggleTest(2)、ScoreBarTest(8)、
+  PikafishEngineMultiPvParseTest(6)、GameViewModelHintCandidatesTest(3)
+- 改造测试:GameTopBarScoreFormatTest(数值精度)、GameViewModelHintTest
+  (suggestedMove → suggestions)、DifficultyGradientTest(跳过 ANALYZE)、
+  删除 PikafishEngineEvalParseTest
+- 真机冒烟待用户在合并 PR 后做:开局应招分差可见、走子后 ~3s TopBar/ScoreBar
+  刷新、吃子后被反扑能正确反映劣势、Hint 候选条出现 3 个按钮 + 主箭头、点击候选
+  触发走子
+
+**备注**
+- 7 commits(inset / 拖影 / eval 删除+数值精度 / ANALYZE / 开关+filter / ScoreBar /
+  Hint 多候选)+ 1 docs 待补
+- 皮卡鱼 movetime 3000ms 在低端机可能压力;自研深度 12 实际跑不到(返回 lastComplete
+  depth),准度受限,可后续替换评估函数
+- MultiPV parse 健壮性依赖皮卡鱼版本;parse 层兜底,失败返回单 PV
+- 未来待办:中文棋谱显示(候选 UCI 改炮二平五式)、ScoreBar mate 高亮、
+  ScoreBar 子力差参考线
+
+---
+
 ## 2026-06-17 — 皮卡鱼 SELinux / 引擎降级 / 点击 round 修复(分支 fix/pikafish-selinux-execute,PR #10)
 
 **改动**
