@@ -146,6 +146,78 @@ class PikafishEngine @Inject constructor(
         session = null
     }
 
+    /**
+     * Hint 候选(M7):发送 MultiPV=3 让皮卡鱼输出多条 PV 的 info 行,
+     * 解析每个 multipv 索引对应的 PV 首着走子,bestmove 行到达后返回去重 top-N。
+     *
+     * 候选**不显示分数**;走完任何候选后 UI 按 auto-eval 流程刷新局势。
+     *
+     * 失败兜底:MultiPV parse 全失败时,用 bestmove 行的走子作为单候选列表。
+     * 结束时还原 MultiPV=1,避免下次 search 受影响。
+     */
+    override suspend fun hintCandidates(
+        board: Board,
+        sideToMove: Side,
+        n: Int,
+    ): List<Move> = withContext(Dispatchers.IO) {
+        _info.value = null
+        val s = try {
+            ensureSession()
+        } catch (_: EngineUnavailableException) {
+            // 引擎不可用时不弹 toast(Hint 失败属于"功能不可用"而非"对局无法继续"),
+            // 返回空列表让 UI 自然不画候选
+            return@withContext emptyList()
+        }
+        val skill = pikafishSkill(Difficulty.HINT)
+        val movetime = Difficulty.HINT.moveTimeMs
+        val fen = FenPosition(board, sideToMove).toFen()
+
+        s.send("ucinewgame")
+        s.send("setoption name Skill Level value $skill")
+        s.send("setoption name Threads value 1")
+        s.send("setoption name MultiPV value $n")
+        s.send("position fen $fen")
+        s.send("go movetime $movetime")
+
+        // multipv 索引(1-based) -> PV 首着 Move。每个新深度的 info 行覆盖旧值,
+        // 用最新的 depth 数据(更深更准)
+        val candidates = LinkedHashMap<Int, Move>()
+        var bestMoveFallback: Move? = null
+        try {
+            s.consume { line ->
+                when {
+                    line.startsWith("info ") -> {
+                        val pair = parseInfoMultiPvFirstMove(line, sideToMove) ?: return@consume false
+                        candidates[pair.first] = pair.second
+                    }
+                    line.startsWith("bestmove ") -> {
+                        val tokens = line.split(' ')
+                        if (tokens.size >= 2 && tokens[1].length == 4) {
+                            bestMoveFallback = Move.fromUci(tokens[1], sideToMove)
+                        }
+                        return@consume true
+                    }
+                }
+                ensureActive()
+                false
+            }
+        } catch (_: CancellationException) {
+            closeSession()
+            return@withContext emptyList()
+        } finally {
+            // 还原 MultiPV=1(下次 search 期望单 PV)
+            try { s.send("setoption name MultiPV value 1") } catch (_: Throwable) {}
+        }
+
+        // multipv 索引排序后取首着,去重;若全失败回退到 bestmove 单候选
+        val result = candidates.entries
+            .sortedBy { it.key }
+            .map { it.value }
+            .distinct()
+            .take(n)
+        if (result.isEmpty()) listOfNotNull(bestMoveFallback) else result
+    }
+
     private fun pikafishSkill(d: Difficulty): Int = when (d) {
         Difficulty.BEGINNER -> 0
         Difficulty.ELEMENTARY -> 5
@@ -208,6 +280,43 @@ class PikafishEngine @Inject constructor(
                 nodes = nodes,
                 timeMs = timeMs,
             )
+        }
+
+        /**
+         * 解析 MultiPV info 行,提取 multipv 索引(1-based)与 PV 首着走子。
+         *
+         * UCI MultiPV 输出形如:
+         * `info depth 12 multipv 1 score cp 35 pv e3e4 h9g7 ...`
+         *
+         * 取 multipv 索引 + `pv` token 后第一个 4 字符 UCI。返回 null 表示该行
+         * 不是带 PV 的 MultiPV info(如 `info string ...`、缺 pv 字段的 info)。
+         */
+        internal fun parseInfoMultiPvFirstMove(
+            line: String,
+            sideToMove: Side,
+        ): Pair<Int, Move>? {
+            if (!line.startsWith("info ")) return null
+            val tokens = line.split(' ')
+            var multiPv: Int? = null
+            var pvIdx = -1
+            var i = 1
+            while (i < tokens.size) {
+                if (tokens[i] == "multipv" && i + 1 < tokens.size) {
+                    multiPv = tokens[i + 1].toIntOrNull()
+                    i += 2
+                } else if (tokens[i] == "pv") {
+                    pvIdx = i + 1
+                    break
+                } else {
+                    i += 1
+                }
+            }
+            val index = multiPv ?: return null
+            if (pvIdx < 0 || pvIdx >= tokens.size) return null
+            val firstUci = tokens[pvIdx]
+            if (firstUci.length != 4) return null
+            val move = Move.fromUci(firstUci, sideToMove)
+            return index to move
         }
     }
 }

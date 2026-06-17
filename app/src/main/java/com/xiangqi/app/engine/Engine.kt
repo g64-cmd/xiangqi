@@ -1,6 +1,7 @@
 package com.xiangqi.app.engine
 
 import com.xiangqi.app.domain.model.Board
+import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Side
 import kotlinx.coroutines.flow.StateFlow
 
@@ -69,6 +70,24 @@ interface Engine {
             isMate = result.isMate,
             matePlies = result.mateInPlies,
         )
+    }
+
+    /**
+     * 返回当前局面下的 top-N 候选应着(用于 Hint 按钮)。
+     *
+     * 默认实现走 [search] 拿单 bestmove 兜底;皮卡鱼用 MultiPV 输出多条 PV,
+     * 自研引擎走 [com.xiangqi.app.engine.self.Search.searchRootTopN] 收集 root 各走法
+     * 分数后取 top-N。
+     *
+     * 候选**不显示分数**:走完任何候选后,UI 按 auto-eval 流程刷新真实局势分数。
+     */
+    suspend fun hintCandidates(
+        board: Board,
+        sideToMove: Side,
+        n: Int = 3,
+    ): List<Move> {
+        val result = search(board, sideToMove, Difficulty.HINT)
+        return listOf(result.bestMove)
     }
 }
 

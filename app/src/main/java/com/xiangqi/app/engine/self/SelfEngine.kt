@@ -2,6 +2,7 @@ package com.xiangqi.app.engine.self
 
 import com.xiangqi.app.domain.eval.Evaluation
 import com.xiangqi.app.domain.model.Board
+import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Side
 import com.xiangqi.app.domain.movegen.MoveGenerator
 import com.xiangqi.app.domain.rules.CheckDetector
@@ -111,6 +112,42 @@ class SelfEngine(
             isMate = isMate,
             mateInPlies = Score.mateInPlies(final.score),
         )
+    }
+
+    /**
+     * Hint 候选:走 HINT 难度浅搜,在 root 收集所有走法分数后取 top-N。
+     *
+     * 与 [search] 不同的是不迭代加深,只跑一次 depth=HINT.depth 搜索拿到 root 各
+     * 走法的精确分数(HINT 短 movetime 内足够)。返回 [Move] 列表(不含分数,
+     * 走完候选后 UI 按正常 auto-eval 流程刷新局势)。
+     */
+    override suspend fun hintCandidates(
+        board: Board,
+        sideToMove: Side,
+        n: Int,
+    ): List<Move> {
+        _info.value = null
+        transpositionTable.clear()
+
+        val deadlineMs = System.currentTimeMillis() + Difficulty.HINT.moveTimeMs
+        val context = coroutineContext
+        val checkCancel: () -> Unit = {
+            val job = context[Job]
+            if (job?.isActive == false) throw CancellationException("SelfEngine hint 被取消")
+            if (System.currentTimeMillis() > deadlineMs) throw SearchTimeoutException
+        }
+
+        val search = buildSearch(checkCancel)
+        return try {
+            search.searchRootTopN(board, sideToMove, Difficulty.HINT.depth, n)
+        } catch (e: CancellationException) {
+            // 取消时返回空,UI 不画候选
+            emptyList()
+        } catch (e: SearchTimeoutException) {
+            // HINT 难度 movetime 400ms 应足够,超时兜底:用 searchRoot 拿单一 bestmove
+            val (bestMove, _) = search.searchRoot(board, sideToMove, Difficulty.HINT.depth)
+            listOfNotNull(bestMove)
+        }
     }
 
     private fun buildSearch(checkCancel: () -> Unit): Search {

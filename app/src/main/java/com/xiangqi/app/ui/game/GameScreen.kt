@@ -31,6 +31,7 @@ import com.xiangqi.app.ui.components.BoardCanvas
 import com.xiangqi.app.ui.components.BoardLayout
 import com.xiangqi.app.ui.components.GameBottomBar
 import com.xiangqi.app.ui.components.GameTopBar
+import com.xiangqi.app.ui.components.HintBar
 import com.xiangqi.app.ui.components.ScoreBar
 import com.xiangqi.app.ui.components.computeLayout
 import com.xiangqi.app.ui.components.modelToView
@@ -56,6 +57,7 @@ fun GameScreen(
         onResign = viewModel::onResign,
         onRestart = viewModel::onRestart,
         onHint = viewModel::onHint,
+        onPlayHint = viewModel::onPlayHint,
         onDrawOffer = viewModel::onDrawOffer,
         onAnalyze = viewModel::onShowAnalysis,
         onDismissAnalysis = viewModel::onDismissAnalysis,
@@ -73,6 +75,7 @@ private fun GameScreenContent(
     onResign: () -> Unit,
     onRestart: () -> Unit,
     onHint: () -> Unit,
+    onPlayHint: (Int) -> Unit,
     onDrawOffer: () -> Unit,
     onAnalyze: () -> Unit,
     onDismissAnalysis: () -> Unit,
@@ -119,6 +122,10 @@ private fun GameScreenContent(
                 onTap = onTap,
                 modifier = Modifier.weight(1f),
             )
+            HintBar(
+                candidates = state.suggestions,
+                onPlay = onPlayHint,
+            )
             ScoreBar(scoreCp = state.currentScore)
         }
         if (state.showAnalysisDialog) {
@@ -164,7 +171,7 @@ private fun BoardArea(
             lastMove = state.lastMove,
             onTap = onTap,
             animation = animation,
-            hintMove = state.suggestedMove,
+            hintMove = state.suggestions.firstOrNull(),
         )
     }
 }

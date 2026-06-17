@@ -82,7 +82,7 @@ class GameViewModel @Inject constructor(
     private val _searchInfo = MutableStateFlow<SearchInfo?>(null)
     private val _resigned = MutableStateFlow<GameResult?>(null)
     private val _drawn = MutableStateFlow<GameResult?>(null)
-    private val _suggestedMove = MutableStateFlow<Move?>(null)
+    private val _suggestions = MutableStateFlow<List<Move>>(emptyList())
     private val _evalHistory = MutableStateFlow<List<Float>>(emptyList())
     private val _currentScore = MutableStateFlow<Float?>(null)
     private val _showAnalysisDialog = MutableStateFlow(false)
@@ -109,8 +109,8 @@ class GameViewModel @Inject constructor(
             if (resigned != null) state.copy(result = resigned) else state
         }.combine(_drawn) { state, drawn ->
             if (drawn != null) state.copy(result = drawn) else state
-        }.combine(_suggestedMove) { state, hint ->
-            state.copy(suggestedMove = hint)
+        }.combine(_suggestions) { state, suggestions ->
+            state.copy(suggestions = suggestions)
         }.combine(_evalHistory) { state, history ->
             state.copy(evalHistory = history)
         }.combine(_currentScore) { state, score ->
@@ -159,7 +159,7 @@ class GameViewModel @Inject constructor(
             isAiThinking = thinking,
             searchInfo = _searchInfo.value,
             canInteract = interact,
-            suggestedMove = _suggestedMove.value,
+            suggestions = _suggestions.value,
             canHint = canHintNow,
             canOfferDraw = canOfferDrawNow,
             currentScore = _currentScore.value,
@@ -248,7 +248,7 @@ class GameViewModel @Inject constructor(
     /**
      * 所有 engine.search 入口的统一通道(M6 抽出)。设置 `_isEngineBusy=true`,
      * 在 Dispatchers.Default 跑 `engine.search`,完成后调用 [onResult](典型:
-     * AI move → applyMove;Hint → 写入 _suggestedMove;求和评估 → 阈值判定)。
+     * AI move → applyMove;Hint → 写入 _suggestions;求和评估 → 阈值判定)。
      * `aiJob?.cancel()` 保证序列化,后到的覆盖前到的。
      */
     private fun launchEngine(
@@ -288,19 +288,19 @@ class GameViewModel @Inject constructor(
 
     fun onTap(position: Position) {
         if (!requireEngineIdle()) {
-            // 即使引擎忙,玩家的 tap 也应清掉 Hint 箭头
-            if (_suggestedMove.value != null) _suggestedMove.value = null
+            // 即使引擎忙,玩家的 tap 也应清掉 Hint 候选
+            if (_suggestions.value.isNotEmpty()) _suggestions.value = emptyList()
             return
         }
         val s = repo.state.value
         val cfg = configHolder.config.value
         if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) {
-            if (_suggestedMove.value != null) _suggestedMove.value = null
+            if (_suggestions.value.isNotEmpty()) _suggestions.value = emptyList()
             return
         }
 
-        // 玩家任何点击都视为"看过提示",清掉 Hint 箭头
-        if (_suggestedMove.value != null) _suggestedMove.value = null
+        // 玩家任何点击都视为"看过提示",清掉 Hint 候选
+        if (_suggestions.value.isNotEmpty()) _suggestions.value = emptyList()
 
         val sel = _selected.value
         val pieceAtTap = s.board[position]
@@ -324,7 +324,7 @@ class GameViewModel @Inject constructor(
     fun onUndo() {
         if (!requireEngineIdle()) return
         clearSelection()
-        _suggestedMove.value = null
+        _suggestions.value = emptyList()
         val cfg = configHolder.config.value
         val historySize = repo.state.value.history.size
         val undoCount = if (cfg.mode == GameMode.HUMAN_VS_AI && historySize >= 2) 2 else 1
@@ -340,7 +340,7 @@ class GameViewModel @Inject constructor(
         clearSelection()
         _resigned.value = null
         _drawn.value = null
-        _suggestedMove.value = null
+        _suggestions.value = emptyList()
         _evalHistory.value = emptyList()
         _currentScore.value = null
         _showAnalysisDialog.value = false
@@ -358,17 +358,45 @@ class GameViewModel @Inject constructor(
     }
 
     /**
-     * 玩家请求一步提示。仅当引擎空闲、对局进行中、轮到玩家方时可用。
-     * 走 [Difficulty.HINT] 档浅搜,结果填入 [_suggestedMove] 由 BoardCanvas 画箭头。
+     * 玩家请求多应着提示。仅当引擎空闲、对局进行中、轮到玩家方时可用。
+     * 走 [Difficulty.HINT] 浅搜(MultiPV / searchRootTopN)拿 top-N 候选,
+     * 结果填入 [_suggestions]:首个候选由 BoardCanvas 画箭头,其余由 HintBar 显示。
+     * 走 launchEngine 通道与 AI 应招 / 求和评估串行,保证 UCI 单实例不变量。
      */
     fun onHint() {
         if (!requireEngineIdle()) return
         val s = repo.state.value
         val cfg = configHolder.config.value
         if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) return
-        launchEngine(s, Difficulty.HINT, EngineKind.HINT) { result ->
-            _suggestedMove.value = result.bestMove
+        val engine = engineProvider.provide(cfg.engineType)
+        aiJob?.cancel()
+        _isEngineBusy.value = true
+        aiJob = viewModelScope.launch(engineDispatcher) {
+            try {
+                val candidates = engine.hintCandidates(s.board, s.sideToMove, n = 3)
+                _suggestions.value = candidates
+            } catch (_: CancellationException) {
+                // 取消时静默
+            } catch (_: Throwable) {
+                // hintCandidates 内部已兜底,这里再兜一次防御
+                _suggestions.value = emptyList()
+            } finally {
+                _isEngineBusy.value = false
+            }
         }
+    }
+
+    /**
+     * 玩家在 HintBar 上选中某个候选走子。走该候选 + 清空候选列表;
+     * 走完后 auto-eval 流程会刷新 TopBar 与 ScoreBar 的真实局势分数。
+     */
+    fun onPlayHint(index: Int) {
+        val candidates = _suggestions.value
+        if (index !in candidates.indices) return
+        if (!requireEngineIdle()) return
+        val move = candidates[index]
+        _suggestions.value = emptyList()
+        repo.applyMove(move)
     }
 
     /**

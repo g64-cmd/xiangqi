@@ -73,6 +73,44 @@ class Search(
         return bestMove to alpha
     }
 
+    /**
+     * 在根节点搜索 [maxDepth] 层,返回 top-N 走法(按当前走子方视角分数降序)。
+     *
+     * 与 [searchRoot] 不同的是:它不为每个走法开 alpha-beta 剪枝窗口(那样只能
+     * 拿到最佳走法),而是对每个 root 走法各跑一次完整窗口的 negamax,拿到精确
+     * 分数。代价是搜索量大约 N 倍,但 HINT 难度(depth=2)代价可接受。
+     *
+     * TT 复用:多次 root 调用共享同一 TT(由调用方在迭代加深前 clear)。
+     *
+     * 返回的走法数可能少于 [n](合法走法不足时)。
+     */
+    fun searchRootTopN(
+        board: Board,
+        sideToMove: Side,
+        maxDepth: Int,
+        n: Int,
+    ): List<Move> {
+        nodes = 0
+        val moves = legality.legalMoves(board, gen.movesFor(board, sideToMove))
+        if (moves.isEmpty()) return emptyList()
+
+        val alpha = Int.MIN_VALUE + 1
+        val beta = Int.MAX_VALUE
+        val key = tt.hash(board, sideToMove)
+        val ttMove = tt.get(key)?.bestMove
+        val ordered = moveOrdering.sort(board, moves, sideToMove, ttMove)
+
+        // 每个 root 走法跑一次完整窗口 negamax 拿精确分数
+        data class Scored(val move: Move, val score: Int)
+        val scored = ArrayList<Scored>(moves.size)
+        for (mv in ordered) {
+            val after = board.applyMove(mv)
+            val score = -negamax(after, sideToMove.opponent, maxDepth - 1, -beta, -alpha, ply = 1)
+            scored += Scored(mv, score)
+        }
+        return scored.sortedByDescending { it.score }.take(n).map { it.move }
+    }
+
     /** 返回当前走子方视角分数(在 [alpha, beta] 窗口内)。 */
     internal fun negamax(
         board: Board,
