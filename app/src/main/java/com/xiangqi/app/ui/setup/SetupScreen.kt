@@ -198,6 +198,7 @@ private fun difficultyLabel(d: Difficulty, engineType: EngineType): String {
         Difficulty.INTERMEDIATE -> "中级"
         Difficulty.ADVANCED -> "高级"
         Difficulty.HINT -> "提示"
+        Difficulty.ANALYZE -> "评估"
     }
     return "$base($suffix)"
 }
@@ -213,4 +214,5 @@ private fun pikafishSkill(d: Difficulty): Int = when (d) {
     Difficulty.INTERMEDIATE -> 12
     Difficulty.ADVANCED -> 20
     Difficulty.HINT -> 10
+    Difficulty.ANALYZE -> 20
 }

@@ -43,19 +43,20 @@ interface Engine {
     /**
      * 局势评估。返回 [sideToMove] 视角下的分数(centipawn)与 mate 标记。
      *
-     * 走 [search] + [Difficulty.ELEMENTARY] 拿 result.score 转 [AnalysisScore]。
+     * 走 [search] + [Difficulty.ANALYZE] 拿 result.score 转 [AnalysisScore]。
      * 用搜索而非静态 eval:静态 eval(NNUE)只看子力配置,不预判后续回合;
      * 玩家吃子后静态 eval 会把短期占优当全局优势,但后续兑子/反扑后可能仍劣势,
-     * 真实局势必须靠搜索才能反映。
+     * 真实局势必须靠搜索才能反映。ANALYZE 是皮卡鱼 movetime=3000ms / 自研深度=12
+     * 的内部档,玩家有耐心接受延迟换取精度。
      *
      * @return 评估结果。出错时调用方应自行兜底(不抛异常)。
      */
     suspend fun analyze(board: Board, sideToMove: Side): AnalysisScore =
-        analyze(board, sideToMove, Difficulty.INTERMEDIATE)
+        analyze(board, sideToMove, Difficulty.ANALYZE)
 
     /**
-     * 局势评估(指定难度)。auto-eval 用 INTERMEDIATE(~800ms)平衡精度与延迟;
-     * Hint 应着候选分析用 HINT 浅档。
+     * 局势评估(指定难度)。auto-eval 走 ANALYZE 深档;
+     * Hint 应着候选评估用 HINT 浅档。
      */
     suspend fun analyze(
         board: Board,

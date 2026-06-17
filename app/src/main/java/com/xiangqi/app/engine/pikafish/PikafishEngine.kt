@@ -152,6 +152,7 @@ class PikafishEngine @Inject constructor(
         Difficulty.INTERMEDIATE -> 12
         Difficulty.ADVANCED -> 20
         Difficulty.HINT -> 10
+        Difficulty.ANALYZE -> 20
     }
 
     companion object {
