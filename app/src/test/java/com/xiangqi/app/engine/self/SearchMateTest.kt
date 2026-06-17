@@ -71,4 +71,14 @@ class SearchMateTest {
         assertThat(Score.mateScore(1)).isEqualTo(Score.MATE - 1)
         assertThat(Score.mateScore(5)).isGreaterThan(Score.MATE_THRESHOLD)
     }
+
+    @Test
+    fun `negative mate score means side to move is being mated`() {
+        // UCI `score mate -3` 表示当前走子方 3 半回合内被将杀,分数应为负且 |s|>THRESHOLD。
+        // 历史回归 bug:旧实现 mateScore(-3) = MATE - (-3) = MATE+3(正数),
+        // 导致被将杀方反被误判为占优。
+        assertThat(Score.mateScore(-3)).isEqualTo(-(Score.MATE - 3))
+        assertThat(Score.mateScore(-3)).isLessThan(-Score.MATE_THRESHOLD)
+        assertThat(Score.mateInPlies(Score.mateScore(-3))).isEqualTo(3)
+    }
 }
