@@ -124,6 +124,7 @@ private fun GameScreenContent(
             )
             HintBar(
                 candidates = state.suggestions,
+                boardBefore = state.board,
                 onPlay = onPlayHint,
             )
             ScoreBar(
