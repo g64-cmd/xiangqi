@@ -24,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -53,6 +54,7 @@ fun SetupScreen(
         onSideChange = viewModel::onSideChange,
         onDifficultyChange = viewModel::onDifficultyChange,
         onEngineTypeChange = viewModel::onEngineTypeChange,
+        onAnalysisToggle = viewModel::onAnalysisToggle,
         onStart = { viewModel.onStart(onStart) },
         onAbout = onAbout,
         modifier = modifier,
@@ -67,6 +69,7 @@ private fun SetupScreenContent(
     onSideChange: (Side) -> Unit,
     onDifficultyChange: (Difficulty) -> Unit,
     onEngineTypeChange: (EngineType) -> Unit,
+    onAnalysisToggle: (Boolean) -> Unit,
     onStart: () -> Unit,
     onAbout: () -> Unit,
     modifier: Modifier = Modifier,
@@ -152,29 +155,57 @@ private fun SetupScreenContent(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text("难度", style = MaterialTheme.typography.titleMedium)
-                    Difficulty.entries.forEach { d ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .selectable(
+                    // HINT / ANALYZE 是内部档(供 Hint 按钮与 auto-eval 使用),
+                    // 不向玩家展示
+                    Difficulty.entries
+                        .filter { it != Difficulty.HINT && it != Difficulty.ANALYZE }
+                        .forEach { d ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .selectable(
+                                        selected = state.difficulty == d,
+                                        role = Role.RadioButton,
+                                        onClick = { onDifficultyChange(d) },
+                                    )
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                RadioButton(
                                     selected = state.difficulty == d,
-                                    role = Role.RadioButton,
-                                    onClick = { onDifficultyChange(d) },
+                                    onClick = null,
                                 )
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            RadioButton(
-                                selected = state.difficulty == d,
-                                onClick = null,
-                            )
-                            Text(
-                                text = difficultyLabel(d, state.engineType),
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
+                                Text(
+                                    text = difficultyLabel(d, state.engineType),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                            }
                         }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .widthIn(max = 480.dp)
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "局势评估",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "走子后深搜评估局势(约 3 秒/步)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
+                    Switch(
+                        checked = state.enableAnalysis,
+                        onCheckedChange = onAnalysisToggle,
+                    )
                 }
             }
 

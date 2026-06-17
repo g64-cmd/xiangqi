@@ -15,10 +15,13 @@ import com.xiangqi.app.ui.game.GameMode
  * @property humanSide 人机模式下玩家执棋方,默认红方。
  * @property difficulty 人机模式下 AI 难度档位,默认中级。
  * @property engineType 人机模式下的 AI 引擎,默认皮卡鱼。
+ * @property enableAnalysis 局势评估开关,默认开。关闭后进入"快打模式",
+ *   每次走子不跑 ANALYZE 深搜,TopBar 与局势带不再刷新。
  */
 data class SetupUiState(
     val mode: GameMode = GameMode.HUMAN_VS_AI,
     val humanSide: Side = Side.RED,
     val difficulty: Difficulty = Difficulty.INTERMEDIATE,
     val engineType: EngineType = EngineType.PIKAFISH,
+    val enableAnalysis: Boolean = true,
 )

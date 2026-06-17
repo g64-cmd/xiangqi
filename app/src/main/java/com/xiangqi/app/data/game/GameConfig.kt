@@ -16,6 +16,8 @@ import com.xiangqi.app.ui.game.GameMode
  * @property difficulty 人机模式下 AI 难度档位;[GameMode.HOT_SEAT] 时无意义。
  * @property orientation 屏幕底部哪方。人机 = 玩家方;双人本地 = RED(M3 兼容)。
  * @property engineType 人机模式下使用的 AI 引擎。HOT_SEAT 时无意义。
+ * @property enableAnalysis 局势评估开关。开启后每次走子跑 ANALYZE 深搜(皮卡鱼
+ *   movetime 3000ms)刷新 TopBar 与局势带。默认开;玩家可关闭进入"快打模式"。
  */
 data class GameConfig(
     val mode: GameMode,
@@ -23,4 +25,5 @@ data class GameConfig(
     val difficulty: Difficulty = Difficulty.INTERMEDIATE,
     val orientation: Side = Side.RED,
     val engineType: EngineType = EngineType.PIKAFISH,
+    val enableAnalysis: Boolean = true,
 )

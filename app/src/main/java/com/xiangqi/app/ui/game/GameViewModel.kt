@@ -216,6 +216,8 @@ class GameViewModel @Inject constructor(
         }
         lastSeenHistorySize = s.history.size
         val cfg = configHolder.config.value
+        // 快打模式:玩家关闭局势评估时跳过 ANALYZE 深搜,TopBar 与局势带保持空
+        if (!cfg.enableAnalysis) return
         val engine = engineProvider.provide(cfg.engineType)
         viewModelScope.launch(engineDispatcher) {
             // 等 AI 应招(若刚刚是人机模式)走完,保证 engine 单线程串行
