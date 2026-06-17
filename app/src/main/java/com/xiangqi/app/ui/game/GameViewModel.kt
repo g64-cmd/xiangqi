@@ -226,6 +226,10 @@ class GameViewModel @Inject constructor(
         val cfg = configHolder.config.value
         // 快打模式:玩家关闭局势评估时跳过 ANALYZE 深搜,TopBar 与局势带保持空
         if (!cfg.enableAnalysis) return
+        // 绝杀 / 和棋后局面已无合法走法,皮卡鱼 `go` 不返回 bestmove,
+        // 会被 launchEngine 当作 EngineUnavailableException 弹 toast。直接跳过,
+        // 保留上一步分数;终局结果已由 GameTopBar / overlay 显示。
+        if (s.result !is GameResult.ONGOING) return
         // 人机模式下,玩家走子后 sideToMove = AI 方。此时 maybeLaunchAi 已启动
         // AI 应招(occupy aiJob),maybeAutoEval 不能并发跑 ANALYZE(否则会
         // aiJob?.cancel() 取消 AI 应招)。等 AI 走完后 emit 时 sideToMove 变回
