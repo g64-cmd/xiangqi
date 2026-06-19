@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -25,7 +26,9 @@ import com.xiangqi.app.ui.theme.InkBlack
 import com.xiangqi.app.ui.theme.InkGray
 import com.xiangqi.app.ui.theme.WoodLight
 import com.xiangqi.app.ui.theme.WoodMid
+import com.xiangqi.app.ui.theme.WoodDark
 import kotlin.math.roundToInt
+import kotlin.random.Random
 
 /**
  * 棋盘上一次动画状态。null 表示当前不在动画。
@@ -67,6 +70,9 @@ fun BoardCanvas(
         val widthPx = constraints.maxWidth.toFloat()
         val heightPx = constraints.maxHeight.toFloat()
         val layout = computeLayout(widthPx, heightPx)
+        // 木纹折线点列表:基于 cell 作为种子确定性生成,layout 变化时重算。
+        // 缓存到 remember 避免 recomposition 每帧重算 12 条折线。
+        val grainLines = remember(layout) { computeGrainLines(layout) }
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -83,7 +89,7 @@ fun BoardCanvas(
                     }
                 },
         ) {
-            drawBackground()
+            drawBackground(grainLines)
             drawOuterBorder(layout)
             drawGrid(layout)
             val textSizePx = layout.cell * 0.45f
@@ -123,23 +129,104 @@ internal fun computeLayout(widthPx: Float, heightPx: Float): BoardLayout {
 
 // ---- 静态绘制层(从背到前) ----
 
-private fun DrawScope.drawBackground() {
+/**
+ * 一条木纹折线:从 [startX,startY] 到 [endX,endY],中间若干控制点形成轻微弯曲。
+ */
+internal data class GrainLine(
+    val startX: Float, val startY: Float,
+    val endX: Float, val endY: Float,
+)
+
+/**
+ * 基于 layout.cell 作为种子确定性生成 [count] 条木纹折线,覆盖棋盘区域。
+ *
+ * 不依赖 System.currentTimeMillis(布局变化时才重算,布局稳定时输出稳定),
+ * 避免 recomposition 每帧重算。
+ */
+internal fun computeGrainLines(layout: BoardLayout, count: Int = 14): List<GrainLine> {
+    val rnd = Random(layout.cell.toBits().toLong())
+    val lines = mutableListOf<GrainLine>()
+    val w = layout.width
+    val h = layout.height
+    repeat(count) {
+        val startX = rnd.nextFloat() * w
+        val startY = rnd.nextFloat() * h
+        val endX = startX + (rnd.nextFloat() - 0.5f) * w * 0.3f
+        val endY = startY + (rnd.nextFloat() - 0.5f) * h * 0.05f
+        lines += GrainLine(startX, startY, endX, endY)
+    }
+    return lines
+}
+
+private fun DrawScope.drawBackground(grainLines: List<GrainLine>) {
+    // 主层:径向渐变(中心略上偏亮,边缘略暗),模拟木板自然光。
     drawRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(WoodLight, WoodMid),
-            startY = 0f,
-            endY = size.height,
+        brush = Brush.radialGradient(
+            colors = listOf(WoodLight, WoodMid, WoodDark),
+            center = Offset(size.width * 0.5f, size.height * 0.42f),
+            radius = maxOf(size.width, size.height) * 0.75f,
         ),
         size = size,
+    )
+
+    // 木纹:InkGray alpha 0.05 的细折线,叠加在背景上模拟纹理。
+    val grainColor = InkGray.copy(alpha = 0.05f)
+    for (g in grainLines) {
+        drawLine(
+            color = grainColor,
+            start = Offset(g.startX, g.startY),
+            end = Offset(g.endX, g.endY),
+            strokeWidth = 1.2f,
+        )
+    }
+
+    // 四角 vignette:4 个角的小 Rect 半透黑,加深边角。
+    val vignetteColor = InkBlack.copy(alpha = 0.08f)
+    val cornerSize = minOf(size.width, size.height) * 0.25f
+    drawRect(
+        color = vignetteColor,
+        topLeft = Offset(0f, 0f),
+        size = Size(cornerSize, cornerSize),
+    )
+    drawRect(
+        color = vignetteColor,
+        topLeft = Offset(size.width - cornerSize, 0f),
+        size = Size(cornerSize, cornerSize),
+    )
+    drawRect(
+        color = vignetteColor,
+        topLeft = Offset(0f, size.height - cornerSize),
+        size = Size(cornerSize, cornerSize),
+    )
+    drawRect(
+        color = vignetteColor,
+        topLeft = Offset(size.width - cornerSize, size.height - cornerSize),
+        size = Size(cornerSize, cornerSize),
     )
 }
 
 private fun DrawScope.drawOuterBorder(layout: BoardLayout) {
-    drawRect(
+    // 外层:InkBlack 粗圆角。
+    val corner = layout.cell * 0.1f
+    drawRoundRect(
         color = InkBlack,
         topLeft = Offset(layout.marginX, layout.marginY),
         size = Size(layout.width - 2 * layout.marginX, layout.height - 2 * layout.marginY),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(corner, corner),
         style = Stroke(width = layout.cell * 0.06f),
+    )
+    // 内层:InkGray 细圆角,内缩 cell*0.08,营造"双线"框。
+    val inset = layout.cell * 0.08f
+    val innerCorner = layout.cell * 0.06f
+    drawRoundRect(
+        color = InkGray,
+        topLeft = Offset(layout.marginX + inset, layout.marginY + inset),
+        size = Size(
+            layout.width - 2 * layout.marginX - 2 * inset,
+            layout.height - 2 * layout.marginY - 2 * inset,
+        ),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(innerCorner, innerCorner),
+        style = Stroke(width = layout.cell * 0.02f),
     )
 }
 
