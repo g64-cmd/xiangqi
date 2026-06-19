@@ -6,6 +6,9 @@ import com.xiangqi.app.data.game.GameConfig
 import com.xiangqi.app.data.game.GameConfigHolder
 import com.xiangqi.app.data.game.GameRepository
 import com.xiangqi.app.data.game.GameState
+import com.xiangqi.app.audio.SoundKind
+import com.xiangqi.app.audio.SoundManager
+import com.xiangqi.app.domain.audio.MoveSoundClassifier
 import com.xiangqi.app.domain.fen.FenParser
 import com.xiangqi.app.domain.model.DrawReason
 import com.xiangqi.app.domain.model.GameResult
@@ -13,6 +16,8 @@ import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Position
 import com.xiangqi.app.domain.model.Side
 import com.xiangqi.app.domain.movegen.MoveGenerator
+import com.xiangqi.app.domain.rules.CheckDetector
+import com.xiangqi.app.domain.rules.CheckmateDetector
 import com.xiangqi.app.domain.rules.MoveLegality
 import com.xiangqi.app.engine.Difficulty
 import com.xiangqi.app.engine.EngineProvider
@@ -66,6 +71,9 @@ class GameViewModel @Inject constructor(
     private val moveLegality: MoveLegality,
     private val engineProvider: EngineProvider,
     private val configHolder: GameConfigHolder,
+    private val soundManager: SoundManager,
+    private val checkDetector: CheckDetector,
+    private val checkmateDetector: CheckmateDetector,
 ) : ViewModel() {
 
     /**
@@ -82,10 +90,9 @@ class GameViewModel @Inject constructor(
     private val _searchInfo = MutableStateFlow<SearchInfo?>(null)
     private val _resigned = MutableStateFlow<GameResult?>(null)
     private val _drawn = MutableStateFlow<GameResult?>(null)
-    private val _suggestedMove = MutableStateFlow<Move?>(null)
+    private val _suggestions = MutableStateFlow<List<Move>>(emptyList())
     private val _evalHistory = MutableStateFlow<List<Float>>(emptyList())
     private val _currentScore = MutableStateFlow<Float?>(null)
-    private val _showAnalysisDialog = MutableStateFlow(false)
 
     /** 短暂 UI 消息(典型:AI 拒绝求和的 toast)。extraBufferCapacity 防止背压丢消息。 */
     private val _toast = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -93,6 +100,8 @@ class GameViewModel @Inject constructor(
     private var aiJob: Job? = null
     /** 上次观察到 history 长度,用于检测新走子触发自动 eval。 */
     private var lastSeenHistorySize = 0
+    /** 上次观察到 history 长度(音效用),独立于 [lastSeenHistorySize] 避免互相覆盖。 */
+    private var lastSoundHistorySize = 0
 
     val uiState: StateFlow<GameUiState> =
         combine(
@@ -109,14 +118,12 @@ class GameViewModel @Inject constructor(
             if (resigned != null) state.copy(result = resigned) else state
         }.combine(_drawn) { state, drawn ->
             if (drawn != null) state.copy(result = drawn) else state
-        }.combine(_suggestedMove) { state, hint ->
-            state.copy(suggestedMove = hint)
+        }.combine(_suggestions) { state, suggestions ->
+            state.copy(suggestions = suggestions)
         }.combine(_evalHistory) { state, history ->
             state.copy(evalHistory = history)
         }.combine(_currentScore) { state, score ->
             state.copy(currentScore = score)
-        }.combine(_showAnalysisDialog) { state, show ->
-            state.copy(showAnalysisDialog = show)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initialState())
 
     init {
@@ -124,6 +131,7 @@ class GameViewModel @Inject constructor(
             repo.state.collect { s ->
                 maybeLaunchAi(s)
                 maybeAutoEval(s)
+                maybePlaySound(s)
             }
         }
     }
@@ -144,7 +152,6 @@ class GameViewModel @Inject constructor(
         val canOfferDrawNow = !thinking &&
             effectiveResult is GameResult.ONGOING &&
             (cfg.mode == GameMode.HOT_SEAT || gs.sideToMove == cfg.humanSide)
-        val canAnalyzeNow = !thinking && effectiveResult is GameResult.ONGOING
         return GameUiState(
             board = gs.board,
             sideToMove = gs.sideToMove,
@@ -159,13 +166,11 @@ class GameViewModel @Inject constructor(
             isAiThinking = thinking,
             searchInfo = _searchInfo.value,
             canInteract = interact,
-            suggestedMove = _suggestedMove.value,
+            suggestions = _suggestions.value,
             canHint = canHintNow,
             canOfferDraw = canOfferDrawNow,
             currentScore = _currentScore.value,
             evalHistory = _evalHistory.value,
-            canAnalyze = canAnalyzeNow,
-            showAnalysisDialog = _showAnalysisDialog.value,
         )
     }
 
@@ -201,11 +206,19 @@ class GameViewModel @Inject constructor(
     /**
      * 走子后自动评估当前局面,append 到 [_evalHistory] 并刷新 [_currentScore]。
      *
-     * **不设** `_isEngineBusy`(否则会和 AI 应招互锁),走独立协程;内部
-     * `aiJob?.join()` 等 AI 应招完成后才跑 analyze,避免 UCI 会话并发损坏。
+     * **走 [launchEngine] 通道**(M7 修复):与 AI 应招共用 `aiJob` +
+     * `_isEngineBusy`。这样既保证 UCI 单实例串行(AI 应招 → auto-eval →
+     * 下一回合 AI 应招依次跑),又让 AI 应招能抢占未完成的 auto-eval
+     *(`aiJob?.cancel()` 取消慢吞吞的 3 秒 ANALYZE)。
      *
-     * **POV 规范化**:analyze 返回 sideToMove 视角;走子后 sideToMove 是
-     * "刚走完方的对手",所以如果走完的是红方(sideToMove=BLACK),分数取负
+     * **早期 bug**:原实现走独立协程 + `aiJob?.join()` ad-hoc 序列化,不设
+     * `_isEngineBusy`。后果是 auto-eval 跑 ANALYZE 期间 `_isEngineBusy=false`,
+     * 玩家走子触发 `maybeLaunchAi` 误判引擎空闲,启动 AI 应招,与 auto-eval
+     * 在同一 UCI session 并发 → 子进程输出混乱 → search 永远等不到 bestmove
+     * → 第 3 步卡死。
+     *
+     * **POV 规范化**:EngineResult.score 是 sideToMove 视角;走子后 sideToMove
+     * 是"刚走完方的对手",所以如果走完的是红方(sideToMove=BLACK),分数取负
      * 让存储统一为红方视角。
      */
     private fun maybeAutoEval(s: GameState) {
@@ -216,23 +229,59 @@ class GameViewModel @Inject constructor(
         }
         lastSeenHistorySize = s.history.size
         val cfg = configHolder.config.value
-        val engine = engineProvider.provide(cfg.engineType)
-        viewModelScope.launch(engineDispatcher) {
-            // 等 AI 应招(若刚刚是人机模式)走完,保证 engine 单线程串行
-            aiJob?.join()
-            try {
-                val raw = engine.analyze(s.board, s.sideToMove)
-                // POV 规范化到红方视角:analyze 返回 sideToMove 视角,
-                // sideToMove == BLACK(即红方刚走完)时取负转红方视角;
-                // sideToMove == RED(黑方刚走完)时已是红方视角直接保留
-                val redPov = if (s.sideToMove == Side.BLACK) -raw.scoreCp else raw.scoreCp
-                _evalHistory.value = _evalHistory.value + redPov
-                _currentScore.value = redPov
-            } catch (_: CancellationException) {
-                // 取消时静默
-            } catch (_: Throwable) {
-                // analyze 失败(子进程异常 / parse 失败)不崩溃,保留上次分数
-            }
+        // 快打模式:玩家关闭局势评估时跳过 ANALYZE 深搜,TopBar 与局势带保持空
+        if (!cfg.enableAnalysis) return
+        // 绝杀 / 和棋后局面已无合法走法,皮卡鱼 `go` 不返回 bestmove,
+        // 会被 launchEngine 当作 EngineUnavailableException 弹 toast。直接跳过,
+        // 保留上一步分数;终局结果已由 GameTopBar / overlay 显示。
+        if (s.result !is GameResult.ONGOING) return
+        // 人机模式下,玩家走子后 sideToMove = AI 方。此时 maybeLaunchAi 已启动
+        // AI 应招(occupy aiJob),maybeAutoEval 不能并发跑 ANALYZE(否则会
+        // aiJob?.cancel() 取消 AI 应招)。等 AI 走完后 emit 时 sideToMove 变回
+        // 玩家方,此时再 eval 即"玩家走完 + AI 应招完成"的局面。
+        if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove == cfg.humanSide.opponent) return
+        val sideToMove = s.sideToMove
+        launchEngine(s, Difficulty.ANALYZE, EngineKind.AUTO_EVAL) { result ->
+            val redPov = if (sideToMove == Side.BLACK) -result.score.toFloat() else result.score.toFloat()
+            _evalHistory.value = _evalHistory.value + redPov
+            _currentScore.value = redPov
+        }
+    }
+
+    /**
+     * 走子音效:从 configHolder 实时读 soundEnabled(玩家可能在游戏中改),
+     * 用 [MoveSoundClassifier] 把 state 变更分类为 MOVE/CAPTURE/CHECK/STALEMATE,
+     * 调 [SoundManager] 播放。undo / restart 让 history 缩短,classifier 返回 null 静默。
+     *
+     * **独立 historySize**:[lastSoundHistorySize] 与 [lastSeenHistorySize] 互不
+     * 干涉(后者被 maybeAutoEval 改写)。
+     */
+    private fun maybePlaySound(s: GameState) {
+        val enabled = configHolder.config.value.soundEnabled
+        soundManager.enabled = enabled
+        val prevSize = lastSoundHistorySize
+        lastSoundHistorySize = s.history.size
+        if (!enabled) return
+        val entry = s.history.lastOrNull()
+        val opponentInCheck = entry != null && checkDetector.isInCheck(s.board, s.sideToMove)
+        val opponentStalemate = entry != null &&
+            s.result !is GameResult.ONGOING &&
+            checkmateDetector.isStalemate(s.board, s.sideToMove)
+        val kind = MoveSoundClassifier.classify(
+            prevHistorySize = prevSize,
+            newHistorySize = s.history.size,
+            entry = entry,
+            result = s.result,
+            resultBefore = entry?.resultBefore ?: GameResult.ONGOING,
+            opponentInCheck = opponentInCheck,
+            opponentStalemate = opponentStalemate,
+        )
+        when (kind) {
+            SoundKind.MOVE -> soundManager.playMove()
+            SoundKind.CAPTURE -> soundManager.playCapture()
+            SoundKind.CHECK -> soundManager.playCheck()
+            SoundKind.STALEMATE -> soundManager.playStalemate()
+            null -> Unit
         }
     }
 
@@ -246,7 +295,7 @@ class GameViewModel @Inject constructor(
     /**
      * 所有 engine.search 入口的统一通道(M6 抽出)。设置 `_isEngineBusy=true`,
      * 在 Dispatchers.Default 跑 `engine.search`,完成后调用 [onResult](典型:
-     * AI move → applyMove;Hint → 写入 _suggestedMove;求和评估 → 阈值判定)。
+     * AI move → applyMove;Hint → 写入 _suggestions;求和评估 → 阈值判定)。
      * `aiJob?.cancel()` 保证序列化,后到的覆盖前到的。
      */
     private fun launchEngine(
@@ -286,19 +335,19 @@ class GameViewModel @Inject constructor(
 
     fun onTap(position: Position) {
         if (!requireEngineIdle()) {
-            // 即使引擎忙,玩家的 tap 也应清掉 Hint 箭头
-            if (_suggestedMove.value != null) _suggestedMove.value = null
+            // 即使引擎忙,玩家的 tap 也应清掉 Hint 候选
+            if (_suggestions.value.isNotEmpty()) _suggestions.value = emptyList()
             return
         }
         val s = repo.state.value
         val cfg = configHolder.config.value
         if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) {
-            if (_suggestedMove.value != null) _suggestedMove.value = null
+            if (_suggestions.value.isNotEmpty()) _suggestions.value = emptyList()
             return
         }
 
-        // 玩家任何点击都视为"看过提示",清掉 Hint 箭头
-        if (_suggestedMove.value != null) _suggestedMove.value = null
+        // 玩家任何点击都视为"看过提示",清掉 Hint 候选
+        if (_suggestions.value.isNotEmpty()) _suggestions.value = emptyList()
 
         val sel = _selected.value
         val pieceAtTap = s.board[position]
@@ -322,7 +371,7 @@ class GameViewModel @Inject constructor(
     fun onUndo() {
         if (!requireEngineIdle()) return
         clearSelection()
-        _suggestedMove.value = null
+        _suggestions.value = emptyList()
         val cfg = configHolder.config.value
         val historySize = repo.state.value.history.size
         val undoCount = if (cfg.mode == GameMode.HUMAN_VS_AI && historySize >= 2) 2 else 1
@@ -331,6 +380,7 @@ class GameViewModel @Inject constructor(
         _evalHistory.value = _evalHistory.value.dropLast(undoCount.coerceAtMost(_evalHistory.value.size))
         _currentScore.value = _evalHistory.value.lastOrNull()
         lastSeenHistorySize = repo.state.value.history.size
+        lastSoundHistorySize = repo.state.value.history.size
     }
 
     fun onRestart() {
@@ -338,35 +388,63 @@ class GameViewModel @Inject constructor(
         clearSelection()
         _resigned.value = null
         _drawn.value = null
-        _suggestedMove.value = null
+        _suggestions.value = emptyList()
         _evalHistory.value = emptyList()
         _currentScore.value = null
-        _showAnalysisDialog.value = false
         lastSeenHistorySize = 0
+        lastSoundHistorySize = 0
         repo.restart()
     }
 
-    /** 显示局势分析曲线 Dialog(数据来自 _evalHistory 走子后自动 eval 累积)。 */
-    fun onShowAnalysis() {
-        _showAnalysisDialog.value = true
-    }
-
-    fun onDismissAnalysis() {
-        _showAnalysisDialog.value = false
+    /**
+     * 预热 SoundPool:GameScreen 进入时调一次 0 音量 play,触发 sample 加载到内存,
+     * 避免首次真实播放因异步加载未完成被丢弃。
+     */
+    fun warmUpSound() {
+        soundManager.enabled = configHolder.config.value.soundEnabled
+        soundManager.warmUp()
     }
 
     /**
-     * 玩家请求一步提示。仅当引擎空闲、对局进行中、轮到玩家方时可用。
-     * 走 [Difficulty.HINT] 档浅搜,结果填入 [_suggestedMove] 由 BoardCanvas 画箭头。
+     * 玩家请求多应着提示。仅当引擎空闲、对局进行中、轮到玩家方时可用。
+     * 走 [Difficulty.HINT] 浅搜(MultiPV / searchRootTopN)拿 top-N 候选,
+     * 结果填入 [_suggestions]:首个候选由 BoardCanvas 画箭头,其余由 HintBar 显示。
+     * 走 launchEngine 通道与 AI 应招 / 求和评估串行,保证 UCI 单实例不变量。
      */
     fun onHint() {
         if (!requireEngineIdle()) return
         val s = repo.state.value
         val cfg = configHolder.config.value
         if (cfg.mode == GameMode.HUMAN_VS_AI && s.sideToMove != cfg.humanSide) return
-        launchEngine(s, Difficulty.HINT, EngineKind.HINT) { result ->
-            _suggestedMove.value = result.bestMove
+        val engine = engineProvider.provide(cfg.engineType)
+        aiJob?.cancel()
+        _isEngineBusy.value = true
+        aiJob = viewModelScope.launch(engineDispatcher) {
+            try {
+                val candidates = engine.hintCandidates(s.board, s.sideToMove, n = 3)
+                _suggestions.value = candidates
+            } catch (_: CancellationException) {
+                // 取消时静默
+            } catch (_: Throwable) {
+                // hintCandidates 内部已兜底,这里再兜一次防御
+                _suggestions.value = emptyList()
+            } finally {
+                _isEngineBusy.value = false
+            }
         }
+    }
+
+    /**
+     * 玩家在 HintBar 上选中某个候选走子。走该候选 + 清空候选列表;
+     * 走完后 auto-eval 流程会刷新 TopBar 与 ScoreBar 的真实局势分数。
+     */
+    fun onPlayHint(index: Int) {
+        val candidates = _suggestions.value
+        if (index !in candidates.indices) return
+        if (!requireEngineIdle()) return
+        val move = candidates[index]
+        _suggestions.value = emptyList()
+        repo.applyMove(move)
     }
 
     /**
@@ -433,7 +511,7 @@ class GameViewModel @Inject constructor(
      * 标识当前 `launchEngine` 调用的语义入口。仅用于日志/调试,M6 起所有 engine
      * 入口共用一个序列化通道。
      */
-    private enum class EngineKind { AI_MOVE, HINT, DRAW_EVAL, MANUAL_ANALYZE }
+    private enum class EngineKind { AI_MOVE, HINT, DRAW_EVAL, MANUAL_ANALYZE, AUTO_EVAL }
 
     companion object {
         /**

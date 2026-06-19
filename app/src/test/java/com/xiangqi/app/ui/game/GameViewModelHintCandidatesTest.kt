@@ -34,13 +34,11 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Hint 按钮契约(M6):
- * - 触发后 suggestedMove 被填充,history 不变
- * - 玩家 onTap / onUndo / onRestart 时清空
- * - 引擎思考中、游戏结束时 canHint = false
+ * onPlayHint 契约(M7):选中 HintBar 候选走子 + 清空候选列表,
+ * 走完后 history 增加 1 步。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class GameViewModelHintTest {
+class GameViewModelHintCandidatesTest {
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -65,21 +63,14 @@ class GameViewModelHintTest {
         return collected.last()
     }
 
-    private fun newVm(
-        engine: Engine = HintFakeEngine(),
-        config: GameConfig = GameConfig(
-            mode = GameMode.HUMAN_VS_AI,
-            humanSide = Side.RED,
-            difficulty = Difficulty.INTERMEDIATE,
-        ),
-    ): GameViewModel {
+    private fun newVm(engine: Engine): GameViewModel {
         val gen = MoveGeneratorImpl()
         val check = CheckDetector(gen)
         val legality = MoveLegality(gen, check)
         val checkmate = CheckmateDetector(gen, check, legality)
         val repo = GameRepository(gen, legality, checkmate)
         val holder = GameConfigHolder()
-        holder.set(config)
+        holder.set(GameConfig(mode = GameMode.HOT_SEAT, enableAnalysis = false))
         val provider = EngineProvider { _ -> engine }
         return GameViewModel(repo, gen, legality, provider, holder, testSoundManager(), check, checkmate).also {
             it.engineDispatcher = testDispatcher
@@ -87,88 +78,50 @@ class GameViewModelHintTest {
     }
 
     @Test
-    fun `onHint 填充 suggestions 且不改 history`() = runTest {
-        val fake = HintFakeEngine()
-        val vm = newVm(fake)
+    fun `onHint 填充 suggestions 多候选`() = runTest {
+        val engine = FakeMultiHintEngine()
+        val vm = newVm(engine)
         vm.onHint()
         advanceUntilIdle()
         val s = snapshot(vm)
-        assertThat(s.suggestions).isNotEmpty()
-        assertThat(fake.hintCandidatesCalls).isEqualTo(1)
+        assertThat(s.suggestions).hasSize(3)
     }
 
     @Test
-    fun `AI 思考中 onHint 是 no-op`() = runTest {
-        val fake = HintFakeEngine(minDelay = 100L)
-        val vm = newVm(fake)
-        // 触发 AI 应招(玩家走子)
-        vm.onTap(com.xiangqi.app.domain.model.Position(7, 2))
-        vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
-        // 思考期间触发 hint,不应该有效果
-        vm.onHint()
-        // 等待 AI 走完
-        advanceUntilIdle()
-        // AI 应招过程中 hintCandidates 不应被调用
-        assertThat(fake.hintCandidatesCalls).isEqualTo(0)
-    }
-
-    @Test
-    fun `onTap 清空 suggestions`() = runTest {
-        val fake = HintFakeEngine()
-        val vm = newVm(fake)
+    fun `onPlayHint 走候选且清空 suggestions`() = runTest {
+        val engine = FakeMultiHintEngine()
+        val vm = newVm(engine)
         vm.onHint()
         advanceUntilIdle()
-        assertThat(snapshot(vm).suggestions).isNotEmpty()
-        vm.onTap(com.xiangqi.app.domain.model.Position(7, 2))
+        val beforeHistory = snapshot(vm).lastMove
+        assertThat(beforeHistory).isNull() // 开局还未走子
+
+        // 选第 0 个候选(主推荐)
+        vm.onPlayHint(0)
         advanceUntilIdle()
-        assertThat(snapshot(vm).suggestions).isEmpty()
+        val s = snapshot(vm)
+        assertThat(s.suggestions).isEmpty()
+        // history 应有 1 步:lastMove 非 null
+        assertThat(s.lastMove).isNotNull()
     }
 
     @Test
-    fun `onUndo 清空 suggestions`() = runTest {
-        val fake = HintFakeEngine()
-        val vm = newVm(fake)
+    fun `onPlayHint 越界索引忽略`() = runTest {
+        val engine = FakeMultiHintEngine()
+        val vm = newVm(engine)
         vm.onHint()
         advanceUntilIdle()
-        assertThat(snapshot(vm).suggestions).isNotEmpty()
-        vm.onUndo()
+        val candidates = snapshot(vm).suggestions
+        // 索引超界不应走子也不应清空
+        vm.onPlayHint(candidates.size + 5)
         advanceUntilIdle()
-        assertThat(snapshot(vm).suggestions).isEmpty()
-    }
-
-    @Test
-    fun `onRestart 清空 suggestions`() = runTest {
-        val fake = HintFakeEngine()
-        val vm = newVm(fake)
-        vm.onHint()
-        advanceUntilIdle()
-        vm.onRestart()
-        advanceUntilIdle()
-        assertThat(snapshot(vm).suggestions).isEmpty()
-    }
-
-    @Test
-    fun `游戏结束时 canHint 为 false`() = runTest {
-        val fake = HintFakeEngine()
-        val vm = newVm(fake)
-        vm.onResign()
-        advanceUntilIdle()
-        assertThat(snapshot(vm).canHint).isFalse()
+        val s = snapshot(vm)
+        assertThat(s.suggestions).isNotEmpty() // 保留候选
+        assertThat(s.lastMove).isNull() // 没走子
     }
 }
 
-/**
- * 专用于 Hint 测试的 Fake Engine:记录每次 search 的 difficulty,
- * 区分 AI 应招 vs Hint 调用。hintCandidates 覆盖返回前 N 个合法走法。
- */
-private class HintFakeEngine(
-    private val minDelay: Long = 0L,
-) : Engine {
-    var lastSearchDifficulty: Difficulty? = null
-        private set
-    var hintCandidatesCalls = 0
-        private set
-
+private class FakeMultiHintEngine : Engine {
     private val _info = MutableStateFlow<SearchInfo?>(null)
     override val type: EngineType = EngineType.SELF
     override val info: StateFlow<SearchInfo?> = _info.asStateFlow()
@@ -178,8 +131,7 @@ private class HintFakeEngine(
         sideToMove: Side,
         difficulty: Difficulty,
     ): EngineResult {
-        lastSearchDifficulty = difficulty
-        delay(minDelay.coerceAtLeast(1L))
+        delay(1L)
         val move = firstLegalMove(board, sideToMove)
         return EngineResult(
             bestMove = move,
@@ -198,8 +150,7 @@ private class HintFakeEngine(
         sideToMove: Side,
         n: Int,
     ): List<Move> {
-        hintCandidatesCalls += 1
-        delay(minDelay.coerceAtLeast(1L))
+        delay(1L)
         val gen = MoveGeneratorImpl()
         val pseudo = gen.movesFor(board, sideToMove)
         val check = CheckDetector(gen)

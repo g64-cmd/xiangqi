@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -22,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,6 +54,8 @@ fun SetupScreen(
         onSideChange = viewModel::onSideChange,
         onDifficultyChange = viewModel::onDifficultyChange,
         onEngineTypeChange = viewModel::onEngineTypeChange,
+        onAnalysisToggle = viewModel::onAnalysisToggle,
+        onSoundToggle = viewModel::onSoundToggle,
         onStart = { viewModel.onStart(onStart) },
         onAbout = onAbout,
         modifier = modifier,
@@ -65,6 +70,8 @@ private fun SetupScreenContent(
     onSideChange: (Side) -> Unit,
     onDifficultyChange: (Difficulty) -> Unit,
     onEngineTypeChange: (EngineType) -> Unit,
+    onAnalysisToggle: (Boolean) -> Unit,
+    onSoundToggle: (Boolean) -> Unit,
     onStart: () -> Unit,
     onAbout: () -> Unit,
     modifier: Modifier = Modifier,
@@ -74,10 +81,12 @@ private fun SetupScreenContent(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 32.dp),
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
                 text = "中国象棋",
@@ -148,29 +157,81 @@ private fun SetupScreenContent(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text("难度", style = MaterialTheme.typography.titleMedium)
-                    Difficulty.entries.forEach { d ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .selectable(
+                    // HINT / ANALYZE 是内部档(供 Hint 按钮与 auto-eval 使用),
+                    // 不向玩家展示
+                    Difficulty.entries
+                        .filter { it != Difficulty.HINT && it != Difficulty.ANALYZE }
+                        .forEach { d ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .selectable(
+                                        selected = state.difficulty == d,
+                                        role = Role.RadioButton,
+                                        onClick = { onDifficultyChange(d) },
+                                    )
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                RadioButton(
                                     selected = state.difficulty == d,
-                                    role = Role.RadioButton,
-                                    onClick = { onDifficultyChange(d) },
+                                    onClick = null,
                                 )
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            RadioButton(
-                                selected = state.difficulty == d,
-                                onClick = null,
-                            )
-                            Text(
-                                text = difficultyLabel(d, state.engineType),
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
+                                Text(
+                                    text = difficultyLabel(d, state.engineType),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                            }
                         }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .widthIn(max = 480.dp)
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "局势评估",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "走子后深搜评估局势(约 3 秒/步)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
+                    Switch(
+                        checked = state.enableAnalysis,
+                        onCheckedChange = onAnalysisToggle,
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .widthIn(max = 480.dp)
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "音效",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "走子 / 吃子 / 将军 / 困毙",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = state.soundEnabled,
+                        onCheckedChange = onSoundToggle,
+                    )
                 }
             }
 
@@ -194,6 +255,7 @@ private fun difficultyLabel(d: Difficulty, engineType: EngineType): String {
         Difficulty.INTERMEDIATE -> "中级"
         Difficulty.ADVANCED -> "高级"
         Difficulty.HINT -> "提示"
+        Difficulty.ANALYZE -> "评估"
     }
     return "$base($suffix)"
 }
@@ -209,4 +271,5 @@ private fun pikafishSkill(d: Difficulty): Int = when (d) {
     Difficulty.INTERMEDIATE -> 12
     Difficulty.ADVANCED -> 20
     Difficulty.HINT -> 10
+    Difficulty.ANALYZE -> 20
 }

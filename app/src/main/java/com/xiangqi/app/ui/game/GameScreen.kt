@@ -3,8 +3,11 @@ package com.xiangqi.app.ui.game
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -22,12 +25,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Position
-import com.xiangqi.app.ui.analysis.AnalysisDialog
 import com.xiangqi.app.ui.components.BoardAnimation
 import com.xiangqi.app.ui.components.BoardCanvas
 import com.xiangqi.app.ui.components.BoardLayout
 import com.xiangqi.app.ui.components.GameBottomBar
 import com.xiangqi.app.ui.components.GameTopBar
+import com.xiangqi.app.ui.components.HintBar
+import com.xiangqi.app.ui.components.ScoreBar
 import com.xiangqi.app.ui.components.computeLayout
 import com.xiangqi.app.ui.components.modelToView
 
@@ -44,6 +48,9 @@ fun GameScreen(
             snackbarHostState.showSnackbar(msg)
         }
     }
+    LaunchedEffect(viewModel) {
+        viewModel.warmUpSound()
+    }
     GameScreenContent(
         state = state,
         snackbarHostState = snackbarHostState,
@@ -52,9 +59,8 @@ fun GameScreen(
         onResign = viewModel::onResign,
         onRestart = viewModel::onRestart,
         onHint = viewModel::onHint,
+        onPlayHint = viewModel::onPlayHint,
         onDrawOffer = viewModel::onDrawOffer,
-        onAnalyze = viewModel::onShowAnalysis,
-        onDismissAnalysis = viewModel::onDismissAnalysis,
         onExit = onExit,
         modifier = modifier,
     )
@@ -69,9 +75,8 @@ private fun GameScreenContent(
     onResign: () -> Unit,
     onRestart: () -> Unit,
     onHint: () -> Unit,
+    onPlayHint: (Int) -> Unit,
     onDrawOffer: () -> Unit,
-    onAnalyze: () -> Unit,
-    onDismissAnalysis: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -100,20 +105,27 @@ private fun GameScreenContent(
                 onHint = onHint,
                 canOfferDraw = state.canOfferDraw,
                 onDrawOffer = onDrawOffer,
-                canAnalyze = state.canAnalyze,
-                onAnalyze = onAnalyze,
             )
         },
     ) { padding ->
-        BoardArea(
-            state = state,
-            onTap = onTap,
-            modifier = Modifier.padding(padding).fillMaxSize(),
-        )
-        if (state.showAnalysisDialog) {
-            AnalysisDialog(
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize(),
+        ) {
+            BoardArea(
+                state = state,
+                onTap = onTap,
+                modifier = Modifier.weight(1f),
+            )
+            HintBar(
+                candidates = state.suggestions,
+                boardBefore = state.board,
+                onPlay = onPlayHint,
+            )
+            ScoreBar(
                 scores = state.evalHistory,
-                onDismiss = onDismissAnalysis,
+                currentScore = state.currentScore,
             )
         }
     }
@@ -153,7 +165,7 @@ private fun BoardArea(
             lastMove = state.lastMove,
             onTap = onTap,
             animation = animation,
-            hintMove = state.suggestedMove,
+            hintMove = state.suggestions.firstOrNull(),
         )
     }
 }

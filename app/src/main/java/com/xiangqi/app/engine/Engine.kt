@@ -1,6 +1,7 @@
 package com.xiangqi.app.engine
 
 import com.xiangqi.app.domain.model.Board
+import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Side
 import kotlinx.coroutines.flow.StateFlow
 
@@ -43,19 +44,50 @@ interface Engine {
     /**
      * 局势评估。返回 [sideToMove] 视角下的分数(centipawn)与 mate 标记。
      *
-     * 默认实现走 [search] + ELEMENTARY 难度,拿 result.score 转 [AnalysisScore]。
-     * [com.xiangqi.app.engine.pikafish.PikafishEngine] 覆盖为发 `eval` 命令做 NNUE
-     * 静态评估(瞬时返回,无 mate 信息)。
+     * 走 [search] + [Difficulty.ANALYZE] 拿 result.score 转 [AnalysisScore]。
+     * 用搜索而非静态 eval:静态 eval(NNUE)只看子力配置,不预判后续回合;
+     * 玩家吃子后静态 eval 会把短期占优当全局优势,但后续兑子/反扑后可能仍劣势,
+     * 真实局势必须靠搜索才能反映。ANALYZE 是皮卡鱼 movetime=3000ms / 自研深度=12
+     * 的内部档,玩家有耐心接受延迟换取精度。
      *
      * @return 评估结果。出错时调用方应自行兜底(不抛异常)。
      */
-    suspend fun analyze(board: Board, sideToMove: Side): AnalysisScore {
-        val result = search(board, sideToMove, Difficulty.ELEMENTARY)
+    suspend fun analyze(board: Board, sideToMove: Side): AnalysisScore =
+        analyze(board, sideToMove, Difficulty.ANALYZE)
+
+    /**
+     * 局势评估(指定难度)。auto-eval 走 ANALYZE 深档;
+     * Hint 应着候选评估用 HINT 浅档。
+     */
+    suspend fun analyze(
+        board: Board,
+        sideToMove: Side,
+        difficulty: Difficulty,
+    ): AnalysisScore {
+        val result = search(board, sideToMove, difficulty)
         return AnalysisScore(
             scoreCp = result.score.toFloat(),
             isMate = result.isMate,
             matePlies = result.mateInPlies,
         )
+    }
+
+    /**
+     * 返回当前局面下的 top-N 候选应着(用于 Hint 按钮)。
+     *
+     * 默认实现走 [search] 拿单 bestmove 兜底;皮卡鱼用 MultiPV 输出多条 PV,
+     * 自研引擎走 [com.xiangqi.app.engine.self.Search.searchRootTopN] 收集 root 各走法
+     * 分数后取 top-N。
+     *
+     * 候选**不显示分数**:走完任何候选后,UI 按 auto-eval 流程刷新真实局势分数。
+     */
+    suspend fun hintCandidates(
+        board: Board,
+        sideToMove: Side,
+        n: Int = 3,
+    ): List<Move> {
+        val result = search(board, sideToMove, Difficulty.HINT)
+        return listOf(result.bestMove)
     }
 }
 

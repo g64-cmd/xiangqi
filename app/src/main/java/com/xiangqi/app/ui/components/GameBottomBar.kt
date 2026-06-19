@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -16,7 +17,9 @@ import com.xiangqi.app.domain.model.GameResult
 
 /**
  * 底部栏:第一行悔棋(条件禁用)+ 认输(进行中且非 AI 思考)+ 重开;
- * 第二行(M6)提示 + 求和 + 分析。
+ * 第二行(M6)提示 + 求和。
+ *
+ * 局势分析曲线已常驻在棋盘下方 ScoreBar,无需独立"分析"按钮 / Dialog。
  */
 @Composable
 fun GameBottomBar(
@@ -30,14 +33,13 @@ fun GameBottomBar(
     onHint: () -> Unit = {},
     canOfferDraw: Boolean = false,
     onDrawOffer: () -> Unit = {},
-    canAnalyze: Boolean = false,
-    onAnalyze: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val ongoing = result is GameResult.ONGOING
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -83,13 +85,6 @@ fun GameBottomBar(
                 modifier = Modifier.weight(1f),
             ) {
                 Text("求和")
-            }
-            OutlinedButton(
-                onClick = onAnalyze,
-                enabled = canAnalyze,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("分析")
             }
         }
     }

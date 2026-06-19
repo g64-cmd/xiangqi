@@ -30,14 +30,14 @@ import com.xiangqi.app.engine.SearchInfo
  * @property canInteract UI 是否接受玩家点击(AI 思考中 / 游戏结束 / AI 回合都禁用)。
  *
  * M6 新增字段:
- * @property suggestedMove 引擎提示走法(Hint 按钮触发),null = 无提示。在棋盘上
- *   画半透明箭头,玩家 onTap / onUndo / onRestart 时清空。
+ * @property suggestions 引擎提示候选走法(Hint 按钮触发),空列表 = 无提示。
+ *   首个候选(主推荐)在棋盘上画半透明箭头,其余候选通过下方 HintBar 显示
+ *   给玩家点击。玩家 onTap / onUndo / onRestart 时清空。
  * @property canHint 是否可以触发提示(进行中且引擎空闲且轮到玩家方)。
  * @property canOfferDraw 是否可以请求求和(同 canHint 条件)。
  * @property currentScore 当前局面评估(红方视角 centipawn);走子后自动更新。
- *   null 表示尚未评估或评估失败。展示在 TopBar 副标题。
+ *   null 表示尚未评估或评估失败。展示在 TopBar 副标题与棋盘下方 ScoreBar。
  * @property evalHistory 整局评估序列(红方视角 cp),索引对齐 history。用于曲线图。
- * @property canAnalyze 是否可手动触发分析(进行中、引擎空闲)。M7/9 commit 用。
  */
 data class GameUiState(
     val board: Board,
@@ -53,11 +53,9 @@ data class GameUiState(
     val isAiThinking: Boolean = false,
     val searchInfo: SearchInfo? = null,
     val canInteract: Boolean = true,
-    val suggestedMove: Move? = null,
+    val suggestions: List<Move> = emptyList(),
     val canHint: Boolean = false,
     val canOfferDraw: Boolean = false,
     val currentScore: Float? = null,
     val evalHistory: List<Float> = emptyList(),
-    val canAnalyze: Boolean = false,
-    val showAnalysisDialog: Boolean = false,
 )

@@ -4,7 +4,6 @@ import com.xiangqi.app.domain.fen.FenPosition
 import com.xiangqi.app.domain.model.Board
 import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Side
-import com.xiangqi.app.engine.AnalysisScore
 import com.xiangqi.app.engine.Difficulty
 import com.xiangqi.app.engine.Engine
 import com.xiangqi.app.engine.EngineUnavailableException
@@ -142,34 +141,81 @@ class PikafishEngine @Inject constructor(
         }
     }
 
-    /**
-     * 局势评估覆盖实现:发送皮卡鱼独有的 `eval` 命令,拿 NNUE 静态评估。
-     * 瞬时返回(无搜索);不输出 mate,所以 [AnalysisScore.isMate] 永远 false。
-     *
-     * 失败(子进程异常 / parse 失败 / 超时)时返回 0 cp,避免调用方崩溃。
-     */
-    override suspend fun analyze(board: Board, sideToMove: Side): AnalysisScore =
-        withContext(Dispatchers.IO) {
-            val s = try {
-                ensureSession()
-            } catch (_: Throwable) {
-                return@withContext AnalysisScore(0f, false, null)
-            }
-            val fen = FenPosition(board, sideToMove).toFen()
-            try {
-                s.send("position fen $fen")
-                s.send("eval")
-                val line = s.waitFor("Final evaluation", timeoutMs = 2000L)
-                val parsed = line?.let { parseEvalLine(it) }
-                parsed ?: AnalysisScore(0f, false, null)
-            } catch (_: Throwable) {
-                AnalysisScore(0f, false, null)
-            }
-        }
-
     private fun closeSession() {
         session?.close()
         session = null
+    }
+
+    /**
+     * Hint 候选(M7):发送 MultiPV=3 让皮卡鱼输出多条 PV 的 info 行,
+     * 解析每个 multipv 索引对应的 PV 首着走子,bestmove 行到达后返回去重 top-N。
+     *
+     * 候选**不显示分数**;走完任何候选后 UI 按 auto-eval 流程刷新局势。
+     *
+     * 失败兜底:MultiPV parse 全失败时,用 bestmove 行的走子作为单候选列表。
+     * 结束时还原 MultiPV=1,避免下次 search 受影响。
+     */
+    override suspend fun hintCandidates(
+        board: Board,
+        sideToMove: Side,
+        n: Int,
+    ): List<Move> = withContext(Dispatchers.IO) {
+        _info.value = null
+        val s = try {
+            ensureSession()
+        } catch (_: EngineUnavailableException) {
+            // 引擎不可用时不弹 toast(Hint 失败属于"功能不可用"而非"对局无法继续"),
+            // 返回空列表让 UI 自然不画候选
+            return@withContext emptyList()
+        }
+        val skill = pikafishSkill(Difficulty.HINT)
+        val movetime = Difficulty.HINT.moveTimeMs
+        val fen = FenPosition(board, sideToMove).toFen()
+
+        s.send("ucinewgame")
+        s.send("setoption name Skill Level value $skill")
+        s.send("setoption name Threads value 1")
+        s.send("setoption name MultiPV value $n")
+        s.send("position fen $fen")
+        s.send("go movetime $movetime")
+
+        // multipv 索引(1-based) -> PV 首着 Move。每个新深度的 info 行覆盖旧值,
+        // 用最新的 depth 数据(更深更准)
+        val candidates = LinkedHashMap<Int, Move>()
+        var bestMoveFallback: Move? = null
+        try {
+            s.consume { line ->
+                when {
+                    line.startsWith("info ") -> {
+                        val pair = parseInfoMultiPvFirstMove(line, sideToMove) ?: return@consume false
+                        candidates[pair.first] = pair.second
+                    }
+                    line.startsWith("bestmove ") -> {
+                        val tokens = line.split(' ')
+                        if (tokens.size >= 2 && tokens[1].length == 4) {
+                            bestMoveFallback = Move.fromUci(tokens[1], sideToMove)
+                        }
+                        return@consume true
+                    }
+                }
+                ensureActive()
+                false
+            }
+        } catch (_: CancellationException) {
+            closeSession()
+            return@withContext emptyList()
+        } finally {
+            // 还原 MultiPV=1(下次 search 期望单 PV)
+            try { s.send("setoption name MultiPV value 1") } catch (_: Throwable) {}
+        }
+
+        // multipv 索引排序后取首着,去重;若全失败回退到 bestmove 单候选
+        val result = candidates.entries
+            .sortedBy { it.key }
+            .map { it.value }
+            .distinct()
+            .take(n)
+        if (result.isEmpty()) listOfNotNull(bestMoveFallback) else result
     }
 
     private fun pikafishSkill(d: Difficulty): Int = when (d) {
@@ -178,6 +224,7 @@ class PikafishEngine @Inject constructor(
         Difficulty.INTERMEDIATE -> 12
         Difficulty.ADVANCED -> 20
         Difficulty.HINT -> 10
+        Difficulty.ANALYZE -> 20
     }
 
     companion object {
@@ -236,37 +283,40 @@ class PikafishEngine @Inject constructor(
         }
 
         /**
-         * 解析一行 `Final evaluation\s+([+-]?\d+\.\d+)\s+\((white|black) side\)...`。
+         * 解析 MultiPV info 行,提取 multipv 索引(1-based)与 PV 首着走子。
          *
-         * 皮卡鱼 eval 命令的输出格式参考 chinese-chess-fish-android:
-         * `Final evaluation       +0.23 (white side) [with scaled NNUE, ...]`
+         * UCI MultiPV 输出形如:
+         * `info depth 12 multipv 1 score cp 35 pv e3e4 h9g7 ...`
          *
-         * 分数解读:float × 100 = centipawn;`(white side)` 时 white=红方,直接返回;
-         * `(black side)` 时取负(等价于"红方视角")。但 [parseEvalLine] 本身只返回
-         * sideToMove 视角(保持与 [analyze] 契约一致),不做 POV 规范化——上层 GameViewModel
-         * 负责根据 sideToMove 决定是否取负。
-         *
-         * 实际上 eval 输出永远从皮卡鱼内部 white 视角给出,与传给 `position fen` 的
-         * sideToMove 无关;这里通过 line 末尾 `(white|black) side` 标签判断 sign。
-         *
-         * 返回 null 表示无法解析。
+         * 取 multipv 索引 + `pv` token 后第一个 4 字符 UCI。返回 null 表示该行
+         * 不是带 PV 的 MultiPV info(如 `info string ...`、缺 pv 字段的 info)。
          */
-        internal fun parseEvalLine(line: String): AnalysisScore? {
-            val regex = Regex(
-                """Final evaluation\s+([+-]?\d+\.\d+)\s+\((white|black)\s+side\)""",
-            )
-            val m = regex.find(line) ?: return null
-            val floatScore = m.groupValues[1].toFloatOrNull() ?: return null
-            val sideLabel = m.groupValues[2]
-            val cp = floatScore * 100f
-            return AnalysisScore(
-                // eval 永远是 white(=红方)视角;black side 标签时翻转,使其变成 sideToMove 视角
-                // —— 但因为调用方会按 sideToMove 决定 POV,我们这里返回 white-POV cp。
-                // 即:white side -> 正;black side -> 负。
-                scoreCp = if (sideLabel == "white") cp else -cp,
-                isMate = false,
-                matePlies = null,
-            )
+        internal fun parseInfoMultiPvFirstMove(
+            line: String,
+            sideToMove: Side,
+        ): Pair<Int, Move>? {
+            if (!line.startsWith("info ")) return null
+            val tokens = line.split(' ')
+            var multiPv: Int? = null
+            var pvIdx = -1
+            var i = 1
+            while (i < tokens.size) {
+                if (tokens[i] == "multipv" && i + 1 < tokens.size) {
+                    multiPv = tokens[i + 1].toIntOrNull()
+                    i += 2
+                } else if (tokens[i] == "pv") {
+                    pvIdx = i + 1
+                    break
+                } else {
+                    i += 1
+                }
+            }
+            val index = multiPv ?: return null
+            if (pvIdx < 0 || pvIdx >= tokens.size) return null
+            val firstUci = tokens[pvIdx]
+            if (firstUci.length != 4) return null
+            val move = Move.fromUci(firstUci, sideToMove)
+            return index to move
         }
     }
 }

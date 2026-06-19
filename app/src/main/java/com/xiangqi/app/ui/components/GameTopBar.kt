@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +39,7 @@ fun GameTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .statusBarsPadding()
             .padding(horizontal = 4.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -96,15 +98,26 @@ fun GameTopBar(
 /**
  * 把红方视角 centipawn 分数格式化为 TopBar 副标题。
  *
- * - |score| < 30 cp -> "均势"
- * - 正分 -> "红方 +X.XX"
- * - 负分 -> "黑方 +X.XX"(把负号转成黑方视角)
+ * 用户约定:正分表示红方占优(分数 = 红方领先多少),负分表示黑方占优。
+ * 始终显示具体数值保留 1 位小数(即便分差很小,也应让玩家看到开局不同的
+ * 微小差别,而不是粗略归一为"均势")。
+ *
+ * scoreCp == 0f 时显示"均势"(开局中性);mate score(识别 |score| >
+ * [com.xiangqi.app.engine.Score.MATE_THRESHOLD])显示"X 方将杀 N 步内";
+ * 其他情况:
+ * - scoreCp > 0 -> "红方 +X.X"
+ * - scoreCp < 0 -> "黑方 +X.X"
  */
 internal fun formatScoreCp(scoreCp: Float): String {
+    if (scoreCp == 0f) return "均势"
     val abs = kotlin.math.abs(scoreCp)
-    if (abs < 30f) return "均势"
+    if (abs > com.xiangqi.app.engine.Score.MATE_THRESHOLD.toFloat()) {
+        val side = if (scoreCp > 0) "红方" else "黑方"
+        val plies = com.xiangqi.app.engine.Score.MATE - abs.toInt()
+        return "$side 将杀 $plies 步内"
+    }
     val pawns = abs / 100f
-    val formatted = String.format("%.2f", pawns)
+    val formatted = String.format("%.1f", pawns)
     return if (scoreCp > 0) "红方 +$formatted" else "黑方 +$formatted"
 }
 

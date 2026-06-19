@@ -5,7 +5,6 @@ import com.xiangqi.app.data.game.GameConfig
 import com.xiangqi.app.data.game.GameConfigHolder
 import com.xiangqi.app.data.game.GameRepository
 import com.xiangqi.app.domain.model.Board
-import com.xiangqi.app.domain.model.GameResult
 import com.xiangqi.app.domain.model.Side
 import com.xiangqi.app.domain.movegen.MoveGeneratorImpl
 import com.xiangqi.app.domain.rules.CheckDetector
@@ -34,13 +33,11 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Draw Offer 契约(M6):
- * - HOT_SEAT:点求和立即和棋
- * - HUMAN_VS_AI:引擎浅搜,|score| < 30 接受、否则 _toast 拒绝
- * - AI 思考中 no-op
+ * 局势评估开关(M7):关闭后进入"快打模式",auto-eval 完全跳过,
+ * currentScore / evalHistory 保持空,玩家不再承担 ANALYZE 深搜延迟。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class GameViewModelDrawOfferTest {
+class GameViewModelAnalysisToggleTest {
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -65,17 +62,14 @@ class GameViewModelDrawOfferTest {
         return collected.last()
     }
 
-    private fun newVm(
-        engine: Engine,
-        config: GameConfig,
-    ): GameViewModel {
+    private fun newVm(engine: Engine, enableAnalysis: Boolean): GameViewModel {
         val gen = MoveGeneratorImpl()
         val check = CheckDetector(gen)
         val legality = MoveLegality(gen, check)
         val checkmate = CheckmateDetector(gen, check, legality)
         val repo = GameRepository(gen, legality, checkmate)
         val holder = GameConfigHolder()
-        holder.set(config)
+        holder.set(GameConfig(mode = GameMode.HOT_SEAT, enableAnalysis = enableAnalysis))
         val provider = EngineProvider { _ -> engine }
         return GameViewModel(repo, gen, legality, provider, holder, testSoundManager(), check, checkmate).also {
             it.engineDispatcher = testDispatcher
@@ -83,82 +77,42 @@ class GameViewModelDrawOfferTest {
     }
 
     @Test
-    fun `HOT_SEAT onDrawOffer 直接和棋`() = runTest {
-        val engine = DrawFakeEngine(score = 0)
-        val vm = newVm(
-            engine,
-            GameConfig(mode = GameMode.HOT_SEAT),
-        )
-        vm.onDrawOffer()
-        advanceUntilIdle()
-        val s = snapshot(vm)
-        assertThat(s.result).isEqualTo(GameResult.Draw(com.xiangqi.app.domain.model.DrawReason.AGREED))
-    }
-
-    @Test
-    fun `HUMAN_VS_AI 均势时 onDrawOffer 接受求和`() = runTest {
-        val engine = DrawFakeEngine(score = 10) // |10| < 30,接受
-        val vm = newVm(
-            engine,
-            GameConfig(
-                mode = GameMode.HUMAN_VS_AI,
-                humanSide = Side.RED,
-                difficulty = Difficulty.INTERMEDIATE,
-            ),
-        )
-        vm.onDrawOffer()
-        advanceUntilIdle()
-        val s = snapshot(vm)
-        assertThat(s.result).isEqualTo(GameResult.Draw(com.xiangqi.app.domain.model.DrawReason.AGREED))
-    }
-
-    @Test
-    fun `HUMAN_VS_AI 优势时 onDrawOffer 拒绝且 result 保持 ONGOING`() = runTest {
-        val engine = DrawFakeEngine(score = 500) // |500| > 30,拒绝
-        val vm = newVm(
-            engine,
-            GameConfig(
-                mode = GameMode.HUMAN_VS_AI,
-                humanSide = Side.RED,
-                difficulty = Difficulty.INTERMEDIATE,
-            ),
-        )
-        vm.onDrawOffer()
-        advanceUntilIdle()
-        // 拒绝后 _drawn 没被设,result 仍 ONGOING
-        val s = snapshot(vm)
-        assertThat(s.result).isInstanceOf(GameResult.ONGOING::class.java)
-    }
-
-    @Test
-    fun `HUMAN_VS_AI AI 思考中 onDrawOffer 是 no-op`() = runTest {
-        // 用 launchEngine 把 _isEngineBusy 占住
-        val engine = DrawFakeEngine(score = 0, minDelay = 200L)
-        val vm = newVm(
-            engine,
-            GameConfig(
-                mode = GameMode.HUMAN_VS_AI,
-                humanSide = Side.RED,
-                difficulty = Difficulty.INTERMEDIATE,
-            ),
-        )
-        // 触发 AI 思考(玩家走子)
+    fun `关闭评估时走子不触发 analyze`() = runTest {
+        val engine = AnalyzeCountingEngine()
+        val vm = newVm(engine, enableAnalysis = false)
         vm.onTap(com.xiangqi.app.domain.model.Position(7, 2))
         vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
-        vm.onDrawOffer() // 思考中,应该被拦下
         advanceUntilIdle()
-        // 思考期间调 onDrawOffer,DrawFakeEngine score=0 若被调用会触发求和;
-        // 但 onDrawOffer 被 _isEngineBusy 拦下,result 应是 ONGOING 或 RedWin/BlackWin(正常走子),
-        // 而不是 Draw AGREED
+        advanceUntilIdle()
         val s = snapshot(vm)
-        assertThat(s.result).isNotInstanceOf(GameResult.Draw::class.java)
+        assertThat(s.currentScore).isNull()
+        assertThat(s.evalHistory).isEmpty()
+        assertThat(engine.analyzeCalls).isEqualTo(0)
+    }
+
+    @Test
+    fun `开启评估时走子触发 analyze`() = runTest {
+        val engine = AnalyzeCountingEngine()
+        val vm = newVm(engine, enableAnalysis = true)
+        vm.onTap(com.xiangqi.app.domain.model.Position(7, 2))
+        vm.onTap(com.xiangqi.app.domain.model.Position(4, 2))
+        advanceUntilIdle()
+        advanceUntilIdle()
+        val s = snapshot(vm)
+        assertThat(engine.analyzeCalls).isGreaterThan(0)
+        assertThat(s.currentScore).isNotNull()
+        assertThat(s.evalHistory).hasSize(1)
     }
 }
 
-private class DrawFakeEngine(
-    private val score: Int,
-    private val minDelay: Long = 0L,
-) : Engine {
+/**
+ * 计数式 fake engine:记录 ANALYZE 难度 search 被调用的次数。
+ * maybeAutoEval 改走 launchEngine(ANALYZE) 后,开关断言基于 search 调用次数。
+ */
+private class AnalyzeCountingEngine : Engine {
+    var analyzeCalls = 0
+        private set
+
     private val _info = MutableStateFlow<SearchInfo?>(null)
     override val type: EngineType = EngineType.SELF
     override val info: StateFlow<SearchInfo?> = _info.asStateFlow()
@@ -168,7 +122,8 @@ private class DrawFakeEngine(
         sideToMove: Side,
         difficulty: Difficulty,
     ): EngineResult {
-        delay(minDelay.coerceAtLeast(1L))
+        if (difficulty == Difficulty.ANALYZE) analyzeCalls += 1
+        delay(1L)
         val gen = MoveGeneratorImpl()
         val pseudo = gen.movesFor(board, sideToMove)
         val check = CheckDetector(gen)
@@ -177,7 +132,7 @@ private class DrawFakeEngine(
         val move = legal.first()
         return EngineResult(
             bestMove = move,
-            score = score,
+            score = 0,
             depth = 1,
             pv = listOf(move),
             nodesSearched = 1L,
