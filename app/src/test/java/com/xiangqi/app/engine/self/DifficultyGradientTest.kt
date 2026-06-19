@@ -87,9 +87,13 @@ class DifficultyGradientTest {
     }
 
     @Test
-    fun `HINT movetime is short relative to INTERMEDIATE`() {
-        assertThat(Difficulty.HINT.moveTimeMs).isLessThan(Difficulty.INTERMEDIATE.moveTimeMs)
-        assertThat(Difficulty.HINT.depth).isEqualTo(2)
+    fun `HINT is deeper than INTERMEDIATE with bounded movetime`() {
+        // 历史 HINT(2, 400) 是"浅快"档;现在调整为 (3, 1000) 让提示质量更接近
+        // INTERMEDIATE 但仍远低于 ADVANCED。契约:
+        // - depth >= INTERMEDIATE.depth(3) 保证 hint 价值
+        // - movetime <= ADVANCED(1500) 避免提示按钮等太久
+        assertThat(Difficulty.HINT.depth).isAtLeast(Difficulty.INTERMEDIATE.depth)
+        assertThat(Difficulty.HINT.moveTimeMs).isAtMost(Difficulty.ADVANCED.moveTimeMs)
     }
 
     private suspend fun searchOnce(
