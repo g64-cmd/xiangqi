@@ -17,7 +17,9 @@ import com.xiangqi.app.domain.model.GameResult
 
 /**
  * 底部栏:第一行悔棋(条件禁用)+ 认输(进行中且非 AI 思考)+ 重开;
- * 第二行(M6)提示 + 求和 + 分析。
+ * 第二行(M6)提示 + 求和。
+ *
+ * 局势分析曲线已常驻在棋盘下方 ScoreBar,无需独立"分析"按钮 / Dialog。
  */
 @Composable
 fun GameBottomBar(
@@ -31,8 +33,6 @@ fun GameBottomBar(
     onHint: () -> Unit = {},
     canOfferDraw: Boolean = false,
     onDrawOffer: () -> Unit = {},
-    canAnalyze: Boolean = false,
-    onAnalyze: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val ongoing = result is GameResult.ONGOING
@@ -85,13 +85,6 @@ fun GameBottomBar(
                 modifier = Modifier.weight(1f),
             ) {
                 Text("求和")
-            }
-            OutlinedButton(
-                onClick = onAnalyze,
-                enabled = canAnalyze,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("分析")
             }
         }
     }

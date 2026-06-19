@@ -25,7 +25,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Position
-import com.xiangqi.app.ui.analysis.AnalysisDialog
 import com.xiangqi.app.ui.components.BoardAnimation
 import com.xiangqi.app.ui.components.BoardCanvas
 import com.xiangqi.app.ui.components.BoardLayout
@@ -62,8 +61,6 @@ fun GameScreen(
         onHint = viewModel::onHint,
         onPlayHint = viewModel::onPlayHint,
         onDrawOffer = viewModel::onDrawOffer,
-        onAnalyze = viewModel::onShowAnalysis,
-        onDismissAnalysis = viewModel::onDismissAnalysis,
         onExit = onExit,
         modifier = modifier,
     )
@@ -80,8 +77,6 @@ private fun GameScreenContent(
     onHint: () -> Unit,
     onPlayHint: (Int) -> Unit,
     onDrawOffer: () -> Unit,
-    onAnalyze: () -> Unit,
-    onDismissAnalysis: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -110,8 +105,6 @@ private fun GameScreenContent(
                 onHint = onHint,
                 canOfferDraw = state.canOfferDraw,
                 onDrawOffer = onDrawOffer,
-                canAnalyze = state.canAnalyze,
-                onAnalyze = onAnalyze,
             )
         },
     ) { padding ->
@@ -133,12 +126,6 @@ private fun GameScreenContent(
             ScoreBar(
                 scores = state.evalHistory,
                 currentScore = state.currentScore,
-            )
-        }
-        if (state.showAnalysisDialog) {
-            AnalysisDialog(
-                scores = state.evalHistory,
-                onDismiss = onDismissAnalysis,
             )
         }
     }

@@ -93,7 +93,6 @@ class GameViewModel @Inject constructor(
     private val _suggestions = MutableStateFlow<List<Move>>(emptyList())
     private val _evalHistory = MutableStateFlow<List<Float>>(emptyList())
     private val _currentScore = MutableStateFlow<Float?>(null)
-    private val _showAnalysisDialog = MutableStateFlow(false)
 
     /** 短暂 UI 消息(典型:AI 拒绝求和的 toast)。extraBufferCapacity 防止背压丢消息。 */
     private val _toast = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -125,8 +124,6 @@ class GameViewModel @Inject constructor(
             state.copy(evalHistory = history)
         }.combine(_currentScore) { state, score ->
             state.copy(currentScore = score)
-        }.combine(_showAnalysisDialog) { state, show ->
-            state.copy(showAnalysisDialog = show)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initialState())
 
     init {
@@ -155,7 +152,6 @@ class GameViewModel @Inject constructor(
         val canOfferDrawNow = !thinking &&
             effectiveResult is GameResult.ONGOING &&
             (cfg.mode == GameMode.HOT_SEAT || gs.sideToMove == cfg.humanSide)
-        val canAnalyzeNow = !thinking && effectiveResult is GameResult.ONGOING
         return GameUiState(
             board = gs.board,
             sideToMove = gs.sideToMove,
@@ -175,8 +171,6 @@ class GameViewModel @Inject constructor(
             canOfferDraw = canOfferDrawNow,
             currentScore = _currentScore.value,
             evalHistory = _evalHistory.value,
-            canAnalyze = canAnalyzeNow,
-            showAnalysisDialog = _showAnalysisDialog.value,
         )
     }
 
@@ -397,19 +391,9 @@ class GameViewModel @Inject constructor(
         _suggestions.value = emptyList()
         _evalHistory.value = emptyList()
         _currentScore.value = null
-        _showAnalysisDialog.value = false
         lastSeenHistorySize = 0
         lastSoundHistorySize = 0
         repo.restart()
-    }
-
-    /** 显示局势分析曲线 Dialog(数据来自 _evalHistory 走子后自动 eval 累积)。 */
-    fun onShowAnalysis() {
-        _showAnalysisDialog.value = true
-    }
-
-    fun onDismissAnalysis() {
-        _showAnalysisDialog.value = false
     }
 
     /**
