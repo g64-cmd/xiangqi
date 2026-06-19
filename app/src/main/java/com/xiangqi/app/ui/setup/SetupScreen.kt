@@ -55,6 +55,7 @@ fun SetupScreen(
         onDifficultyChange = viewModel::onDifficultyChange,
         onEngineTypeChange = viewModel::onEngineTypeChange,
         onAnalysisToggle = viewModel::onAnalysisToggle,
+        onSoundToggle = viewModel::onSoundToggle,
         onStart = { viewModel.onStart(onStart) },
         onAbout = onAbout,
         modifier = modifier,
@@ -70,6 +71,7 @@ private fun SetupScreenContent(
     onDifficultyChange: (Difficulty) -> Unit,
     onEngineTypeChange: (EngineType) -> Unit,
     onAnalysisToggle: (Boolean) -> Unit,
+    onSoundToggle: (Boolean) -> Unit,
     onStart: () -> Unit,
     onAbout: () -> Unit,
     modifier: Modifier = Modifier,
@@ -205,6 +207,30 @@ private fun SetupScreenContent(
                     Switch(
                         checked = state.enableAnalysis,
                         onCheckedChange = onAnalysisToggle,
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .widthIn(max = 480.dp)
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "音效",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "走子 / 吃子 / 将军 / 困毙",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = state.soundEnabled,
+                        onCheckedChange = onSoundToggle,
                     )
                 }
             }

@@ -50,6 +50,10 @@ class SetupViewModel @Inject constructor(
         _ui.update { it.copy(enableAnalysis = enabled) }
     }
 
+    fun onSoundToggle(enabled: Boolean) {
+        _ui.update { it.copy(soundEnabled = enabled) }
+    }
+
     /**
      * 把当前选择写入 [GameConfigHolder],然后触发 [onConfigured](通常是导航到 GameScreen)。
      */
@@ -64,6 +68,7 @@ class SetupViewModel @Inject constructor(
                 else com.xiangqi.app.domain.model.Side.RED,
                 engineType = s.engineType,
                 enableAnalysis = s.enableAnalysis,
+                soundEnabled = s.soundEnabled,
             )
         )
         onConfigured()

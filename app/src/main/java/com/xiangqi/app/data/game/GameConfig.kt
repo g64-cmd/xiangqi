@@ -18,6 +18,7 @@ import com.xiangqi.app.ui.game.GameMode
  * @property engineType 人机模式下使用的 AI 引擎。HOT_SEAT 时无意义。
  * @property enableAnalysis 局势评估开关。开启后每次走子跑 ANALYZE 深搜(皮卡鱼
  *   movetime 3000ms)刷新 TopBar 与局势带。默认开;玩家可关闭进入"快打模式"。
+ * @property soundEnabled 走子音效开关(走子/吃子/将军/困毙)。默认开。
  */
 data class GameConfig(
     val mode: GameMode,
@@ -26,4 +27,5 @@ data class GameConfig(
     val orientation: Side = Side.RED,
     val engineType: EngineType = EngineType.PIKAFISH,
     val enableAnalysis: Boolean = true,
+    val soundEnabled: Boolean = true,
 )
