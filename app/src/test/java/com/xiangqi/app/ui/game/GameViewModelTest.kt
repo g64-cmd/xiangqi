@@ -67,7 +67,7 @@ class GameViewModelTest {
         val holder = GameConfigHolder()
         // HOT_SEAT 模式 + NoopEngine 包装的 Provider,既有用例不受 AI 干扰
         holder.set(GameConfig(mode = GameMode.HOT_SEAT, enableAnalysis = false))
-        return GameViewModel(repo, gen, legality, NoopProvider, holder)
+        return GameViewModel(repo, gen, legality, NoopProvider, holder, testSoundManager(), check, checkmate)
     }
 
     /** 在 runTest 内订阅 uiState 并等待 viewModelScope 跑完一轮,返回当前值。 */

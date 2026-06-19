@@ -71,7 +71,7 @@ class GameViewModelAnalysisToggleTest {
         val holder = GameConfigHolder()
         holder.set(GameConfig(mode = GameMode.HOT_SEAT, enableAnalysis = enableAnalysis))
         val provider = EngineProvider { _ -> engine }
-        return GameViewModel(repo, gen, legality, provider, holder).also {
+        return GameViewModel(repo, gen, legality, provider, holder, testSoundManager(), check, checkmate).also {
             it.engineDispatcher = testDispatcher
         }
     }

@@ -85,7 +85,7 @@ class GameViewModelAiTest {
         holder.set(holderConfig)
         // 用 FakeEngine 包装一个固定 EngineProvider,让所有 type 都返回同一 Fake
         val provider = EngineProvider { _ -> engine }
-        return GameViewModel(repo, gen, legality, provider, holder) to holder
+        return GameViewModel(repo, gen, legality, provider, holder, testSoundManager(), check, checkmate) to holder
     }
 
     @Test

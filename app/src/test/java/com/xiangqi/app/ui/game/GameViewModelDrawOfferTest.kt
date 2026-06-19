@@ -77,7 +77,7 @@ class GameViewModelDrawOfferTest {
         val holder = GameConfigHolder()
         holder.set(config)
         val provider = EngineProvider { _ -> engine }
-        return GameViewModel(repo, gen, legality, provider, holder).also {
+        return GameViewModel(repo, gen, legality, provider, holder, testSoundManager(), check, checkmate).also {
             it.engineDispatcher = testDispatcher
         }
     }

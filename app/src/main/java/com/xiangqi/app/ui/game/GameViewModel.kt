@@ -6,6 +6,9 @@ import com.xiangqi.app.data.game.GameConfig
 import com.xiangqi.app.data.game.GameConfigHolder
 import com.xiangqi.app.data.game.GameRepository
 import com.xiangqi.app.data.game.GameState
+import com.xiangqi.app.audio.SoundKind
+import com.xiangqi.app.audio.SoundManager
+import com.xiangqi.app.domain.audio.MoveSoundClassifier
 import com.xiangqi.app.domain.fen.FenParser
 import com.xiangqi.app.domain.model.DrawReason
 import com.xiangqi.app.domain.model.GameResult
@@ -13,6 +16,8 @@ import com.xiangqi.app.domain.model.Move
 import com.xiangqi.app.domain.model.Position
 import com.xiangqi.app.domain.model.Side
 import com.xiangqi.app.domain.movegen.MoveGenerator
+import com.xiangqi.app.domain.rules.CheckDetector
+import com.xiangqi.app.domain.rules.CheckmateDetector
 import com.xiangqi.app.domain.rules.MoveLegality
 import com.xiangqi.app.engine.Difficulty
 import com.xiangqi.app.engine.EngineProvider
@@ -66,6 +71,9 @@ class GameViewModel @Inject constructor(
     private val moveLegality: MoveLegality,
     private val engineProvider: EngineProvider,
     private val configHolder: GameConfigHolder,
+    private val soundManager: SoundManager,
+    private val checkDetector: CheckDetector,
+    private val checkmateDetector: CheckmateDetector,
 ) : ViewModel() {
 
     /**
@@ -93,6 +101,8 @@ class GameViewModel @Inject constructor(
     private var aiJob: Job? = null
     /** 上次观察到 history 长度,用于检测新走子触发自动 eval。 */
     private var lastSeenHistorySize = 0
+    /** 上次观察到 history 长度(音效用),独立于 [lastSeenHistorySize] 避免互相覆盖。 */
+    private var lastSoundHistorySize = 0
 
     val uiState: StateFlow<GameUiState> =
         combine(
@@ -124,6 +134,7 @@ class GameViewModel @Inject constructor(
             repo.state.collect { s ->
                 maybeLaunchAi(s)
                 maybeAutoEval(s)
+                maybePlaySound(s)
             }
         }
     }
@@ -243,6 +254,43 @@ class GameViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 走子音效:从 configHolder 实时读 soundEnabled(玩家可能在游戏中改),
+     * 用 [MoveSoundClassifier] 把 state 变更分类为 MOVE/CAPTURE/CHECK/STALEMATE,
+     * 调 [SoundManager] 播放。undo / restart 让 history 缩短,classifier 返回 null 静默。
+     *
+     * **独立 historySize**:[lastSoundHistorySize] 与 [lastSeenHistorySize] 互不
+     * 干涉(后者被 maybeAutoEval 改写)。
+     */
+    private fun maybePlaySound(s: GameState) {
+        val enabled = configHolder.config.value.soundEnabled
+        soundManager.enabled = enabled
+        val prevSize = lastSoundHistorySize
+        lastSoundHistorySize = s.history.size
+        if (!enabled) return
+        val entry = s.history.lastOrNull()
+        val opponentInCheck = entry != null && checkDetector.isInCheck(s.board, s.sideToMove)
+        val opponentStalemate = entry != null &&
+            s.result !is GameResult.ONGOING &&
+            checkmateDetector.isStalemate(s.board, s.sideToMove)
+        val kind = MoveSoundClassifier.classify(
+            prevHistorySize = prevSize,
+            newHistorySize = s.history.size,
+            entry = entry,
+            result = s.result,
+            resultBefore = entry?.resultBefore ?: GameResult.ONGOING,
+            opponentInCheck = opponentInCheck,
+            opponentStalemate = opponentStalemate,
+        )
+        when (kind) {
+            SoundKind.MOVE -> soundManager.playMove()
+            SoundKind.CAPTURE -> soundManager.playCapture()
+            SoundKind.CHECK -> soundManager.playCheck()
+            SoundKind.STALEMATE -> soundManager.playStalemate()
+            null -> Unit
+        }
+    }
+
     private fun launchAiMove(s: GameState) {
         val cfg = configHolder.config.value
         launchEngine(s, cfg.difficulty, EngineKind.AI_MOVE) { result ->
@@ -338,6 +386,7 @@ class GameViewModel @Inject constructor(
         _evalHistory.value = _evalHistory.value.dropLast(undoCount.coerceAtMost(_evalHistory.value.size))
         _currentScore.value = _evalHistory.value.lastOrNull()
         lastSeenHistorySize = repo.state.value.history.size
+        lastSoundHistorySize = repo.state.value.history.size
     }
 
     fun onRestart() {
@@ -350,6 +399,7 @@ class GameViewModel @Inject constructor(
         _currentScore.value = null
         _showAnalysisDialog.value = false
         lastSeenHistorySize = 0
+        lastSoundHistorySize = 0
         repo.restart()
     }
 
@@ -360,6 +410,15 @@ class GameViewModel @Inject constructor(
 
     fun onDismissAnalysis() {
         _showAnalysisDialog.value = false
+    }
+
+    /**
+     * 预热 SoundPool:GameScreen 进入时调一次 0 音量 play,触发 sample 加载到内存,
+     * 避免首次真实播放因异步加载未完成被丢弃。
+     */
+    fun warmUpSound() {
+        soundManager.enabled = configHolder.config.value.soundEnabled
+        soundManager.warmUp()
     }
 
     /**

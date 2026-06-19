@@ -49,6 +49,9 @@ fun GameScreen(
             snackbarHostState.showSnackbar(msg)
         }
     }
+    LaunchedEffect(viewModel) {
+        viewModel.warmUpSound()
+    }
     GameScreenContent(
         state = state,
         snackbarHostState = snackbarHostState,
